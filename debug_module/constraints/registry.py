@@ -3,6 +3,14 @@ import torch.fx
 from typing import Set, List, Type
 from .base import Constraint
 
+
+def resolve_aten(op_names: List[str]) -> Set[str]:
+    """
+    Resolve a list of operator names to their full aten qualified names.
+    Returns a set of op names prefixed with 'aten.' for matching.
+    """
+    return {f"aten.{op_name}" for op_name in op_names}
+
 class LayoutConstraint(Constraint):
     def __init__(self, strict_contiguous: bool = True):
         self.strict_contiguous = strict_contiguous
@@ -133,13 +141,41 @@ class DtypeConstraint(Constraint):
         return f"Dtype {dtype} is not allowed. Allowed: {self.allowed_dtypes}"
 
 
+# Unsupported Ops
+lu_like = resolve_aten([
+    "_lu_with_info",
+    "linalg_lu",
+    "linalg_lu_factor",
+    "linalg_lu_factor_ex",
+    "linalg_lu_solve",
+    "lu_solve",
+    "lu_unpack",
+])
+
+conv_like = resolve_aten([
+    "convolution", "convolution_backward",
+    "_convolution", "_convolution_mode", "_convolution_double_backward",
+])
+
+inplace_acts = resolve_aten([
+    "relu_", "silu_", "gelu_", "elu_", "celu_", "leaky_relu_", "rrelu_", "selu_", "relu6_",
+])
+
+prelu_like = resolve_aten([
+    "prelu", "_prelu_kernel", "_prelu_kernel_backward",
+])
+
+value_sel = resolve_aten(["kthvalue", "value_selecting_reduction_backward"])
+
+deny_ops = set().union(lu_like, conv_like, inplace_acts, prelu_like, value_sel)
+
+
 # Default configuration for the Mock Backend
 # We can expand this later or make it configurable via env vars
 DEFAULT_CONSTRAINTS: List[Constraint] = [
     # Example: Let's ban float64 to simulate a lower-precision accelerator
     DtypeConstraint({torch.float32, torch.float16, torch.int64, torch.int32, torch.bool}),
     
-    # Example: Let's ban a random op to test the mechanism (e.g. 'aten.sin.default' if we wanted)
-    # For now, empty list of unsupported ops
-    UnsupportedOpsConstraint(set())
+    # Unsupported ops constraint with deny_ops set
+    UnsupportedOpsConstraint(deny_ops)
 ]
