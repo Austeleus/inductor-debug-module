@@ -1,22 +1,8 @@
-# Virtual environment
 .venv/
-venv/
-ENV/
-env/
-
-# Python
+debug_artifacts/
 __pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-
-# IDE
+*.pyc
 .idea/
-.vscode/
-*.swp
-*.swo
-
-# OS
 .DS_Store
-Thumbs.db
+project_description.txt
+HPML Project.ipynb
