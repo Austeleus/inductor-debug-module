@@ -6,7 +6,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from transformers import AutoTokenizer, AutoModelForMaskedLM
-from debug_module import mock_backend
+from debug_module.backend.mock import mock_backend
 
 # Setup
 MODEL_ID = "google-bert/bert-base-multilingual-cased"
