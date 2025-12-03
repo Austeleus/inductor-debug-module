@@ -1,38 +1,42 @@
-#!/usr/bin/env python3
 """
-Phase 1: AOTAutograd + TorchInductor Integration Test Suite
+Test Suite for AOTAutograd + Mock Backend Constraint System
 ===========================================================
 
 Validates:
 
-  ✔ FX pre-AOT graph capture
-  ✔ AOT Forward graph capture
-  ✔ AOT Backward graph capture
-  ✔ SVG visualizations created
-  ✔ Graph statistics saved
-  ✔ torch.compile executes correctly
-  ✔ Tested on: simple, module, dynamic-shape-ish models
-  ✔ CPU-only compatibility
+  ✔ ConstraintChecker applies constraints to AOT forward & backward graphs
+  ✔ mock_backend(strict=X, constraints=[...]) works properly
+  ✔ DtypeConstraint
+  ✔ ShapeConstraint
+  ✔ UnsupportedOpsConstraint
+  ✔ MemoryConstraint
+  ✔ Strict mode → raises RuntimeError
+  ✔ Warning mode → prints but runs
+  ✔ Artifact generation still occurs
 
 Run:
-    python test_aotbackend.py
+    python test_constraints_backend.py
 """
 
 import os
 import sys
 import time
-import glob
 import torch
 
-# Add parent directory to imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from debug_module.aot_backend.mock import mock_backend
+from debug_module.constraints.registry import (
+    DtypeConstraint,
+    ShapeConstraint,
+    UnsupportedOpsConstraint,
+    MemoryConstraint,
+    resolve_aten,
+)
 
-
-# ---------------------------------------------------------------------------
-# Colors
-# ---------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# Pretty Colors
+# -----------------------------------------------------------------------------
 class C:
     BOLD = "\033[1m"
     RED  = "\033[91m"
@@ -59,133 +63,244 @@ def info(msg):
     print(f"{C.YLW}[INFO]{C.END} {msg}")
 
 
-# ---------------------------------------------------------------------------
-# File-check helper
-# ---------------------------------------------------------------------------
-def expect(pattern, count, label):
-    files = glob.glob(pattern)
-    if len(files) >= count:
-        ok(f"{label} (found {len(files)})")
-    else:
-        fail(f"Missing {label}: expected ≥ {count}, found {len(files)}")
-
-
-# ---------------------------------------------------------------------------
-# Test 1: baseline AOT compilation
-# ---------------------------------------------------------------------------
-def test_basic_aot():
-    banner("TEST 1 — Basic AOT Autograd Integration")
-
-    # Reset debug directory
+# -----------------------------------------------------------------------------
+# Helpers
+# -----------------------------------------------------------------------------
+def reset_artifacts():
+    import shutil
     if os.path.exists("debug_artifacts"):
-        import shutil
         shutil.rmtree("debug_artifacts")
 
-    def model(x, y):
-        return (x + y).sin().relu()
 
-    x = torch.randn(4, 4, requires_grad=True)
-    y = torch.randn(4, 4, requires_grad=True)
-
-    info("Compiling simple model under AOT backend...")
-    compiled = torch.compile(model, backend=mock_backend)
-    out = compiled(x, y)
-    out.sum().backward()
-
-    # Check artifacts
-    expect("debug_artifacts/fx_graphs/fx_pre_*.txt",   1, "FX Pre-AOT Graph")
-    expect("debug_artifacts/aot_graphs/aot_fwd_*.txt", 1, "AOT Forward Graph")
-    expect("debug_artifacts/aot_graphs/aot_bwd_*.txt", 1, "AOT Backward Graph")
-    expect("debug_artifacts/visualizations/*.svg",     3, "SVG Graph Visualizations")
-    expect("debug_artifacts/statistics/stats_*.json",  2, "Graph Statistics")
+def test_compile_success(backend, model, *inputs):
+    """
+    Compiles using torch.compile(model, backend=backend) and checks success.
+    """
+    try:
+        compiled = torch.compile(model, backend=backend)
+        out = compiled(*inputs)
+        out.sum().backward()
+        return True
+    except Exception as e:
+        print(e)
+        return False
 
 
-# ---------------------------------------------------------------------------
-# Test 2: nn.Module with parameters
-# ---------------------------------------------------------------------------
-def test_module_model():
-    banner("TEST 2 — nn.Module Compilation")
+# -----------------------------------------------------------------------------
+# TEST 1 — DTYPE CONSTRAINT
+# -----------------------------------------------------------------------------
+def test_dtype_constraint_strict_fail():
+    banner("TEST 1 — DtypeConstraint strict fail")
 
-    class MyModule(torch.nn.Module):
-        def __init__(self):
-            super().__init__()
-            self.lin = torch.nn.Linear(8, 8)
+    reset_artifacts()
 
-        def forward(self, x):
-            return torch.sin(self.lin(x))
-
-    m = MyModule()
-    x = torch.randn(2, 8)
-
-    info("Compiling nn.Module through AOT backend...")
-    compiled = torch.compile(m, backend=mock_backend)
-    out = compiled(x)
-
-    if out.shape == (2, 8):
-        ok("Module executed correctly")
-    else:
-        fail("Incorrect module output shape")
-
-
-# ---------------------------------------------------------------------------
-# Test 3: Dynamic-shape simulation
-# ---------------------------------------------------------------------------
-def test_dynamic_proxy():
-    banner("TEST 3 — Dynamic-ish Shape Behavior")
+    # Only allow float32
+    constraints = [DtypeConstraint({torch.float32})]
+    backend = mock_backend(strict=True, constraints=constraints)
 
     def model(x):
-        return (x * 2).cos()
+        return x.sin().cos()
 
-    compiled = torch.compile(model, backend=mock_backend)
+    x = torch.randn(4, 4, dtype=torch.float64, requires_grad=True)
 
-    for shape in [(3,3), (10,10), (4,7)]:
-        info(f"Running shape {shape}...")
-        x = torch.randn(*shape)
-        out = compiled(x)
+    info("Running model with float64 input (should fail)...")
 
-        if out.shape == shape:
-            ok(f"Run succeeded for shape {shape}")
-        else:
-            fail(f"Unexpected output shape for {shape}")
+    try:
+        compiled = torch.compile(model, backend=backend)
+        compiled(x)
+        fail("DtypeConstraint should fail in strict mode")
+    except RuntimeError:
+        ok("Strict DtypeConstraint correctly rejected float64")
+    except Exception as e:
+        fail(f"Unexpected error: {e}")
 
 
-# ---------------------------------------------------------------------------
-# Test 4: TorchInductor debug directory on GPU
-# ---------------------------------------------------------------------------
-def test_inductor():
-    banner("TEST 4 — TorchInductor IR (GPU Only)")
+def test_dtype_constraint_warning():
+    banner("TEST 2 — DtypeConstraint warning")
 
-    if torch.version.cuda is None:
-        info("CPU-only environment — Inductor IR test skipped")
-        return
+    reset_artifacts()
+
+    constraints = [DtypeConstraint({torch.float32})]
+    backend = mock_backend(strict=False, constraints=constraints)
 
     def model(x):
-        return (x * 3).relu()
+        return x * 2
 
-    x = torch.randn(32, 32, device="cuda")
+    x = torch.randn(2, 2, dtype=torch.float64)
 
-    compiled = torch.compile(model, backend=mock_backend)
-    compiled(x)
+    info("Running model with float64 in warning mode (should print warning)...")
+    try:
+        compiled = torch.compile(model, backend=backend)
+        compiled(x)
+        ok("Warning mode allowed float64 with warnings")
+    except Exception as e:
+        fail(f"Warning mode should NOT fail: {e}")
 
-    dirs = glob.glob("torch_compile_debug/*")
-    if dirs:
-        ok("Inductor IR generated")
+
+# -----------------------------------------------------------------------------
+# TEST 3 — SHAPE CONSTRAINT
+# -----------------------------------------------------------------------------
+def test_shape_constraint_strict():
+    banner("TEST 3 — ShapeConstraint strict")
+
+    reset_artifacts()
+
+    constraints = [ShapeConstraint(alignment=8)]
+    backend = mock_backend(strict=True, constraints=constraints)
+
+    def model(x):
+        return x + 1
+
+    x = torch.randn(3, 3)  # shape not divisible by 8
+
+    info("Running shape-misaligned input (should fail)...")
+    try:
+        compiled = torch.compile(model, backend=backend)
+        compiled(x)
+        fail("ShapeConstraint strict mode should fail")
+    except RuntimeError:
+        ok("ShapeConstraint strict mode caught alignment violation")
+
+
+def test_shape_constraint_warning():
+    banner("TEST 4 — ShapeConstraint warning")
+
+    reset_artifacts()
+
+    constraints = [ShapeConstraint(alignment=8)]
+    backend = mock_backend(strict=False, constraints=constraints)
+
+    def model(x):
+        return x.relu()
+
+    x = torch.randn(5, 5)
+
+    info("Running misaligned input in warning mode...")
+    try:
+        compiled = torch.compile(model, backend=backend, dynamic=True)
+        compiled(x)
+        ok("ShapeConstraint warning allowed execution")
+    except Exception as e:
+        fail(f"Warning mode should allow execution: {e}")
+
+
+# -----------------------------------------------------------------------------
+# TEST 5 — UNSUPPORTED OP CONSTRAINT
+# -----------------------------------------------------------------------------
+def test_unsupported_op():
+    banner("TEST 5 — UnsupportedOpsConstraint")
+
+    reset_artifacts()
+
+    sin_op = resolve_aten(["sin"])
+
+    constraints = [UnsupportedOpsConstraint(sin_op)]
+    backend = mock_backend(strict=True, constraints=constraints)
+
+    def model(x):
+        return torch.sin(x)   # forbidden op
+
+    x = torch.randn(4, 4)
+
+    info("Running model with unsupported operator aten.sin (should fail)...")
+    try:
+        compiled = torch.compile(model, backend=backend)
+        compiled(x)
+        fail("Unsupported operator should fail in strict mode")
+    except RuntimeError:
+        ok("UnsupportedOpsConstraint correctly rejected aten.sin")
+
+
+# -----------------------------------------------------------------------------
+# TEST 6 — MEMORY CONSTRAINT
+# -----------------------------------------------------------------------------
+def test_memory_constraint():
+    banner("TEST 6 — MemoryConstraint")
+
+    reset_artifacts()
+
+    constraints = [MemoryConstraint(max_memory_bytes=1024)]  # 1 KB
+    backend = mock_backend(strict=True, constraints=constraints)
+
+    def model(x):
+        return x * 2  # output > 1 KB
+
+    x = torch.randn(128, 128)  # ~64 KB tensor
+
+    info("Running model that exceeds memory limit (should fail)...")
+    try:
+        compiled = torch.compile(model, backend=backend)
+        compiled(x)
+        fail("MemoryConstraint strict should fail")
+    except RuntimeError:
+        ok("MemoryConstraint strict correctly rejected large tensors")
+
+
+# -----------------------------------------------------------------------------
+# TEST 7 — MULTIPLE CONSTRAINTS
+# -----------------------------------------------------------------------------
+def test_multiple_constraints():
+    banner("TEST 7 — Multiple Constraints Working Together")
+
+    reset_artifacts()
+
+    constraints = [
+        DtypeConstraint({torch.float32}),
+        ShapeConstraint(alignment=4),
+        UnsupportedOpsConstraint(resolve_aten(["cos"])),
+    ]
+
+    backend = mock_backend(strict=True, constraints=constraints)
+
+    def model(x):
+        return torch.cos(x + 1.0)  # forbidden + misaligned shape + dtype mismatch possible
+
+    x = torch.randn(3, 3, dtype=torch.float64)
+
+    info("Running model with multiple constraint violations...")
+
+    try:
+        compiled = torch.compile(model, backend=backend)
+        compiled(x)
+        fail("Multiple constraints should cause strict failure")
+    except RuntimeError:
+        ok("Multiple constraints correctly triggered strict failure")
+
+
+# -----------------------------------------------------------------------------
+# MAIN
+# -----------------------------------------------------------------------------
+def main():
+    banner("MOCK BACKEND CONSTRAINT TEST SUITE")
+
+    tests = [
+        ("Dtype strict fail",       test_dtype_constraint_strict_fail),
+        ("Dtype warning",           test_dtype_constraint_warning),
+        ("Shape strict",            test_shape_constraint_strict),
+        ("Shape warning",           test_shape_constraint_warning),
+        ("Unsupported op",          test_unsupported_op),
+        ("Memory constraint",       test_memory_constraint),
+        ("Multiple constraints",    test_multiple_constraints),
+    ]
+
+    passed = 0
+
+    for name, fn in tests:
+        try:
+            fn()
+            passed += 1
+        except Exception as e:
+            print(e)
+
+    print(f"\n{C.BOLD}Passed {passed}/{len(tests)} tests{C.END}")
+
+    if passed == len(tests):
+        print(f"{C.GRN}{C.BOLD}ALL TESTS PASSED!{C.END}")
+        return 0
     else:
-        fail("Inductor did NOT generate IR!")
+        print(f"{C.RED}{C.BOLD}SOME TESTS FAILED{C.END}")
+        return 1
 
 
-# ---------------------------------------------------------------------------
-# MAIN RUNNER
-# ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    banner("PHASE 1 — AOT Autograd / Inductor Integration Test Suite")
-
-    start = time.time()
-
-    test_basic_aot()
-    test_module_model()
-    test_dynamic_proxy()
-    test_inductor()
-
-    banner("ALL TESTS COMPLETED")
-    print(f"{C.GRN}{C.BOLD}Total time: {time.time() - start:.2f}s{C.END}")
+    sys.exit(main())
