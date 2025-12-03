@@ -1,0 +1,38 @@
+{
+  "model_name": "ResNet-18",
+  "model_id": "torchvision.models.resnet18",
+  "model_type": "cnn",
+  "parameter_count": 11689512,
+  "timestamp": 1764741128.574257,
+  "device": "cpu",
+  "graph_count": 1,
+  "graph_break_count": 0,
+  "break_reasons": [],
+  "kerneldiff_passed": true,
+  "max_absolute_error": 0.0,
+  "mean_absolute_error": 0.0,
+  "eager_backend": {
+    "compile_time": 0.0,
+    "avg_inference_time": 0.047762393951416016,
+    "std_inference_time": 0.0021355152130126953,
+    "success": true,
+    "error_message": null,
+    "constraint_warnings": []
+  },
+  "inductor_backend": {
+    "compile_time": 0.5978350639343262,
+    "avg_inference_time": 0.0,
+    "std_inference_time": 0.0,
+    "success": false,
+    "error_message": "CppCompileError: C++ compile error\n\nCommand:\nclang++ /var/folders/xp/f2mr64890ts60l92gpskt_180000gn/T/tmposy18cie/header.hpp -D TORCH_INDUCTOR_CPP_WRAPPER -D STANDALONE_TORCH_HEADER -D C10_USING_CUSTOM_GENERATED_MACROS -D CPU_CAPABILITY_NEON -D AT_BUILD_ARM_VEC256_WITH_SLEEF -O3 -DNDEBUG -fno-trapping-math -funsafe-math-optimizations -ffinite-math-only -fno-signed-zeros -fno-math-errno -fno-finite-math-only -fno-unsafe-math-optimizations -ffp-contract=off -fPIC -Wall -std=c++17 -Wno-unused-variable -Wno-unknown-pragmas -Werror=ignored-optimization-argument -Xclang -fopenmp -I/Library/Frameworks/Python.framework/Versions/3.12/include/python3.12 -I/Users/austeleus/PycharmProjects/inductor-debug-module/.venv/lib/python3.12/site-packages/torch/include -I/Users/austeleus/PycharmProjects/inductor-debug-module/.venv/lib/python3.12/site-packages/torch/include/torch/csrc/api/include -I/opt/anaconda3/include -E -P -o /var/folders/xp/f2mr64890ts60l92gpskt_180000gn/T/tmposy18cie/header.i\n\nOutput:\nIn file included from /var/folders/xp/f2mr64890ts60l92gpskt_180000gn/T/tmposy18cie/header.hpp:1:\n/Users/austeleus/PycharmProjects/inductor-debug-module/.venv/lib/python3.12/site-packages/torch/include/torch/csrc/inductor/cpp_prefix.h:4:10: fatal error: 'algorithm' file not found\n    4 | #include <algorithm>\n      |          ^~~~~~~~~~~\n1 error generated.\n\n\nSet TORCHDYNAMO_VERBOSE=1 for the internal stack trace (please do this especially if you're reporting a bug to PyTorch). For even more developer context, set TORCH_LOGS=\"+dynamo\"\n",
+    "constraint_warnings": []
+  },
+  "mock_backend": {
+    "compile_time": 0.0003540515899658203,
+    "avg_inference_time": 0.05430102348327637,
+    "std_inference_time": 0.0023949146270751953,
+    "success": true,
+    "error_message": null,
+    "constraint_warnings": []
+  }
+}

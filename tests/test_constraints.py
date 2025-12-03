@@ -1,5 +1,10 @@
 import torch
 import os
+import sys
+
+# Add parent directory to path for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from debug_module.backend.mock import mock_backend
 
 def test_shape_constraint():

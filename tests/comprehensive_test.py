@@ -18,6 +18,9 @@ import os
 import sys
 import time
 
+# Add parent directory to path for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 # Add color support for terminal output
 class Colors:
     HEADER = '\033[95m'

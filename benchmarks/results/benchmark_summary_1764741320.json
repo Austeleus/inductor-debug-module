@@ -1,0 +1,69 @@
+{
+  "timestamp": "2025-12-03 00:55:20",
+  "models_tested": 1,
+  "results": [
+    {
+      "model_name": "SSM-Small (Custom)",
+      "model_id": "custom-ssm-small",
+      "model_type": "ssm",
+      "parameter_count": 27434624,
+      "timestamp": 1764741315.558662,
+      "device": "cpu",
+      "graph_count": 0,
+      "graph_break_count": 0,
+      "break_reasons": [],
+      "kerneldiff_passed": true,
+      "max_absolute_error": 0.0,
+      "mean_absolute_error": 0.0,
+      "eager_backend": {
+        "compile_time": 0.0,
+        "avg_inference_time": 0.04909312725067139,
+        "std_inference_time": 0.0011199712753295898,
+        "success": true,
+        "error_message": null,
+        "constraint_warnings": []
+      },
+      "inductor_backend": {
+        "compile_time": 0.5577359199523926,
+        "avg_inference_time": 0.0,
+        "std_inference_time": 0.0,
+        "success": false,
+        "error_message": "CppCompileError: C++ compile error\n\nCommand:\nclang++ /var/folders/xp/f2mr64890ts60l92gpskt_180000gn/T/tmp5l8bl578/header.hpp -D TORCH_INDUCTOR_CPP_WRAPPER -D STANDALONE_TORCH_HEADER -D C10_USING_CUSTOM_GENERATED_MACROS -D CPU_CAPABILITY_NEON -D AT_BUILD_ARM_VEC256_WITH_SLEEF -O3 -DNDEBUG -fno-trapping-math -funsafe-math-optimizations -ffinite-math-only -fno-signed-zeros -fno-math-errno -fno-finite-math-only -fno-unsafe-math-optimizations -ffp-contract=off -fPIC -Wall -std=c++17 -Wno-unused-variable -Wno-unknown-pragmas -Werror=ignored-optimization-argument -Xclang -fopenmp -I/Library/Frameworks/Python.framework/Versions/3.12/include/python3.12 -I/Users/austeleus/PycharmProjects/inductor-debug-module/.venv/lib/python3.12/site-packages/torch/include -I/Users/austeleus/PycharmProjects/inductor-debug-module/.venv/lib/python3.12/site-packages/torch/include/torch/csrc/api/include -I/opt/anaconda3/include -E -P -o /var/folders/xp/f2mr64890ts60l92gpskt_180000gn/T/tmp5l8bl578/header.i\n\nOutput:\nIn file included from /var/folders/xp/f2mr64890ts60l92gpskt_180000gn/T/tmp5l8bl578/header.hpp:1:\n/Users/austeleus/PycharmProjects/inductor-debug-module/.venv/lib/python3.12/site-packages/torch/include/torch/csrc/inductor/cpp_prefix.h:4:10: fatal error: 'algorithm' file not found\n    4 | #include <algorithm>\n      |          ^~~~~~~~~~~\n1 error generated.\n\n\nSet TORCHDYNAMO_VERBOSE=1 for the internal stack trace (please do this especially if you're reporting a bug to PyTorch). For even more developer context, set TORCH_LOGS=\"+dynamo\"\n",
+        "constraint_warnings": []
+      },
+      "mock_backend": {
+        "compile_time": 0.00027680397033691406,
+        "avg_inference_time": 0.04535210132598877,
+        "std_inference_time": 0.00012981891632080078,
+        "success": true,
+        "error_message": null,
+        "constraint_warnings": [
+          "Node x_2 produces a non-contiguous tensor, which is not supported.",
+          "Node z produces a non-contiguous tensor, which is not supported.",
+          "Node x_3 produces a non-contiguous tensor, which is not supported.",
+          "Node x_4 produces a non-contiguous tensor, which is not supported.",
+          "Node x_5 produces a non-contiguous tensor, which is not supported.",
+          "Node x_6 produces a non-contiguous tensor, which is not supported.",
+          "Node x_10 produces a non-contiguous tensor, which is not supported.",
+          "Node z_1 produces a non-contiguous tensor, which is not supported.",
+          "Node x_11 produces a non-contiguous tensor, which is not supported.",
+          "Node x_12 produces a non-contiguous tensor, which is not supported.",
+          "Node x_13 produces a non-contiguous tensor, which is not supported.",
+          "Node x_14 produces a non-contiguous tensor, which is not supported.",
+          "Node x_18 produces a non-contiguous tensor, which is not supported.",
+          "Node z_2 produces a non-contiguous tensor, which is not supported.",
+          "Node x_19 produces a non-contiguous tensor, which is not supported.",
+          "Node x_20 produces a non-contiguous tensor, which is not supported.",
+          "Node x_21 produces a non-contiguous tensor, which is not supported.",
+          "Node x_22 produces a non-contiguous tensor, which is not supported.",
+          "Node x_26 produces a non-contiguous tensor, which is not supported.",
+          "Node z_3 produces a non-contiguous tensor, which is not supported.",
+          "Node x_27 produces a non-contiguous tensor, which is not supported.",
+          "Node x_28 produces a non-contiguous tensor, which is not supported.",
+          "Node x_29 produces a non-contiguous tensor, which is not supported.",
+          "Node x_30 produces a non-contiguous tensor, which is not supported."
+        ]
+      }
+    }
+  ]
+}
