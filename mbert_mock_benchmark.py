@@ -2,13 +2,11 @@
 
 import os, time, torch, subprocess
 from transformers import AutoTokenizer, AutoModelForMaskedLM
-from debug_module import mock_backend   # <-- your mock backend
+from debug_module import mock_backend
 
-# ===== knobs =====
-WARMUP, ITERS, PRINT_EVERY = 3, 10, 2   # you can bump these up later
+WARMUP, ITERS, PRINT_EVERY = 3, 10, 2
 MODEL_ID = "google-bert/bert-base-multilingual-cased"
-VERBOSE_DYNAMO = False                  # set True for very chatty logs
-# =================
+VERBOSE_DYNAMO = False
 
 os.environ["TORCH_LOGS"] = "+dynamo,graph_breaks" if VERBOSE_DYNAMO else "graph_breaks"
 os.environ["TORCH_COMPILE_DEBUG"] = "1"
@@ -44,7 +42,6 @@ def build_inputs(tokenizer, device):
 
 @torch.no_grad()
 def run_with_progress(model, batch, warmup, iters, label):
-    # warmup
     if warmup > 0:
         log(f"[{label}] warmup: {warmup} iters")
     for i in range(warmup):
@@ -54,7 +51,6 @@ def run_with_progress(model, batch, warmup, iters, label):
     if torch.cuda.is_available():
         torch.cuda.synchronize()
 
-    # timed section
     log(f"[{label}] timed: {iters} iters")
     t0 = time.perf_counter()
     last = None
@@ -82,24 +78,21 @@ def top_pred_tokens(logits, tokenizer, batch):
     return preds
 
 def main():
-    # Load model/tokenizer
     log(f"[info] loading {MODEL_ID}…")
     tok = AutoTokenizer.from_pretrained(MODEL_ID)
     model = AutoModelForMaskedLM.from_pretrained(MODEL_ID).eval().to(device)
 
     batch = build_inputs(tok, device)
 
-    # ----- Eager baseline -----
     eager_ms, eager_out = run_with_progress(model, batch, WARMUP, ITERS, "eager")
     log(f"[eager] avg latency: {eager_ms:.2f} ms")
 
-    # ----- Mock backend + TorchInductor -----
     log("[mock] compiling with mock_backend (TorchInductor under the hood)…")
     t0c = time.perf_counter()
     compiled = torch.compile(
         model,
-        backend=mock_backend,   # your mock backend
-        fullgraph=False,        # keep partitioning allowed (similar to your Hidet setup)
+        backend=mock_backend,
+        fullgraph=False,
     )
     if torch.cuda.is_available():
         torch.cuda.synchronize()
@@ -109,7 +102,6 @@ def main():
     mock_ms, mock_out = run_with_progress(compiled, batch, WARMUP, ITERS, "mock")
     log(f"[mock] avg latency: {mock_ms:.2f} ms")
 
-    # Correctness sanity check
     ep = top_pred_tokens(eager_out.logits, tok, batch)
     mp = top_pred_tokens(mock_out.logits, tok, batch)
     log("\nTop-1 predictions (eager | mock):")
