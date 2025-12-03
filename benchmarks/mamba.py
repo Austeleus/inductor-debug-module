@@ -119,7 +119,7 @@ class MambaSmallBenchmark(BaseBenchmark):
         class SimpleSSMBlock(nn.Module):
             """A simplified SSM-inspired block for benchmarking."""
 
-            def __init__(self, hidden_size, state_size=16, expand=2):
+            def __init__(self, hidden_size, expand=2):
                 super().__init__()
                 inner_size = hidden_size * expand
 
@@ -128,10 +128,6 @@ class MambaSmallBenchmark(BaseBenchmark):
 
                 # SSM parameters (simplified)
                 self.conv1d = nn.Conv1d(inner_size, inner_size, kernel_size=4, padding=3, groups=inner_size)
-
-                # State space parameters
-                self.x_proj = nn.Linear(inner_size, state_size * 2)
-                self.dt_proj = nn.Linear(state_size, inner_size)
 
                 # Output projection
                 self.out_proj = nn.Linear(inner_size, hidden_size)
@@ -161,11 +157,11 @@ class MambaSmallBenchmark(BaseBenchmark):
         class SimpleSSMModel(nn.Module):
             """A simple SSM-like model for benchmarking."""
 
-            def __init__(self, vocab_size, hidden_size, num_layers, state_size=16):
+            def __init__(self, vocab_size, hidden_size, num_layers):
                 super().__init__()
                 self.embedding = nn.Embedding(vocab_size, hidden_size)
                 self.layers = nn.ModuleList([
-                    SimpleSSMBlock(hidden_size, state_size) for _ in range(num_layers)
+                    SimpleSSMBlock(hidden_size) for _ in range(num_layers)
                 ])
                 self.norm = nn.LayerNorm(hidden_size)
                 self.lm_head = nn.Linear(hidden_size, vocab_size, bias=False)
