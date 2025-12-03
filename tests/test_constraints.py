@@ -1,11 +1,13 @@
 import torch
 import os
 import sys
+import pytest
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from debug_module.backend.mock import mock_backend
+from debug_module.utils import BackendCompilerFailed
 
 def test_shape_constraint():
     print("\n=== Testing Shape Constraint (Alignment=16) ===")
@@ -21,12 +23,10 @@ def test_shape_constraint():
     model = OddModel()
     x = torch.randn(10) # Not divisible by 16
     
-    try:
+    with pytest.raises(BackendCompilerFailed) as excinfo:
         opt_model = torch.compile(model, backend=mock_backend)
         opt_model(x)
-        print("FAIL: Should have raised BackendCompilerFailed")
-    except Exception as e:
-        print(f"PASS: Caught expected error: {e}")
+    print(f"PASS: Caught expected BackendCompilerFailed: {excinfo.value}")
 
 def test_layout_constraint():
     print("\n=== Testing Layout Constraint ===")
@@ -42,16 +42,10 @@ def test_layout_constraint():
     model = TransposeModel()
     x = torch.randn(10, 10)
     
-    try:
+    with pytest.raises(BackendCompilerFailed) as excinfo:
         opt_model = torch.compile(model, backend=mock_backend)
         opt_model(x)
-        # Note: torch.compile might optimize away the transpose or handle it.
-        # But if the graph has a node producing non-contiguous output, we should catch it.
-        # However, 'transpose' itself produces a view. The 'add' might consume it.
-        # Let's see if our constraint catches the intermediate 'transpose' node output.
-        print("PASS (if no error, maybe Inductor handled it or our check is permissive)")
-    except Exception as e:
-        print(f"PASS: Caught expected error: {e}")
+    print(f"PASS: Caught expected BackendCompilerFailed: {excinfo.value}")
 
 def test_warning_mode():
     print("\n=== Testing Warning Mode (Strict=0) ===")
@@ -69,8 +63,10 @@ def test_warning_mode():
         opt_model = torch.compile(model, backend=mock_backend)
         opt_model(x)
         print("PASS: Ran successfully despite violation (Warning Mode)")
+    except BackendCompilerFailed as e:
+        pytest.fail(f"FAIL: Should NOT have raised BackendCompilerFailed: {e}")
     except Exception as e:
-        print(f"FAIL: Should NOT have raised error: {e}")
+        pytest.fail(f"FAIL: Unexpected error type: {e}")
 
 if __name__ == "__main__":
     test_shape_constraint()
