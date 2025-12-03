@@ -156,6 +156,9 @@ python your_script.py
 ```
 inductor-debug-module/
 ├── debug_module/           # Core package
+|   ├── aot_backend/
+|   │   ├── aot_capture.py  # Artifact capture + SVG + statistics
+|   │   ├── mock.py         # AOTAutograd backend with compile_fx
 │   ├── backend/            # Mock backend implementation
 │   │   ├── compiler.py     # Core compilation logic
 │   │   └── mock.py         # Backend entry point
@@ -177,6 +180,7 @@ inductor-debug-module/
 │   ├── runner.py           # CLI runner
 │   └── results/            # Output directory
 ├── tests/                  # Test scripts
+│   ├── test_aotbackend.py  # AOTAutograd integrated backend tests
 │   ├── test_kerneldiff.py  # KernelDiff tests
 │   ├── test_kerneldiff_bert.py
 │   ├── test_bert.py        # BERT verification

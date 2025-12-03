@@ -13,9 +13,9 @@ This document outlines the remaining work to complete the project, organized int
 ### Tasks:
 
 #### 1.1 Integrate AOTAutograd
-- [ ] Modify `mock_backend()` to use `aot_module_simplified`
-- [ ] Create separate compilers for forward and backward passes
-- [ ] Capture both FX graph (pre-AOT) and AOT graph (post-AOT)
+- [x] Modify `mock_backend()` to use `aot_module_simplified`
+- [x] Create separate compilers for forward and backward passes
+- [x] Capture both FX graph (pre-AOT) and AOT graph (post-AOT)
 
 ```python
 # Target implementation in backend/mock.py
@@ -35,10 +35,10 @@ def mock_backend(gm, example_inputs):
 ```
 
 #### 1.2 Enhanced Artifact Capture
-- [ ] Save FX graph (pre-AOT)
-- [ ] Save AOT graph (post-AOT)
-- [ ] Save graph statistics (op counts, dtypes, memory estimates)
-- [ ] Optional: SVG visualization of graphs
+- [x] Save FX graph (pre-AOT)
+- [x] Save AOT graph (post-AOT)
+- [x] Save graph statistics (op counts, dtypes, memory estimates)
+- [x] Optional: SVG visualization of graphs
 
 #### 1.3 Update Artifact Directory Structure
 ```
