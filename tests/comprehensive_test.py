@@ -21,6 +21,8 @@ import time
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from debug_module.utils import BackendCompilerFailed
+
 # Add color support for terminal output
 class Colors:
     HEADER = '\033[95m'
@@ -111,10 +113,13 @@ def test_backend_dtype_failure():
         result = compiled(x, y)
         print_fail("Should have failed but succeeded!")
         return False
-    except Exception as e:
-        print_success(f"Correctly rejected float64!")
+    except BackendCompilerFailed as e:
+        print_success("Correctly rejected float64!")
         print_info(f"Error: {str(e)[:100]}...")
         return True
+    except Exception as e:
+        print_fail(f"Unexpected error type: {e}")
+        return False
 
 
 def test_backend_shape_alignment():
@@ -147,10 +152,13 @@ def test_backend_shape_alignment():
         result = compiled(x)
         print_fail("Should have failed alignment check!")
         return False
-    except Exception as e:
-        print_success(f"Correctly rejected misaligned shape!")
+    except BackendCompilerFailed as e:
+        print_success("Correctly rejected misaligned shape!")
         print_info(f"Error: {str(e)[:100]}...")
         return True
+    except Exception as e:
+        print_fail(f"Unexpected error type: {e}")
+        return False
     finally:
         # Reset
         os.environ["MOCK_ALIGNMENT"] = "1"
@@ -222,10 +230,13 @@ def test_backend_memory_constraint():
         result = compiled(x)
         print_fail("Should have failed memory check!")
         return False
-    except Exception as e:
-        print_success(f"Correctly rejected oversized tensor!")
+    except BackendCompilerFailed as e:
+        print_success("Correctly rejected oversized tensor!")
         print_info(f"Error: {str(e)[:100]}...")
         return True
+    except Exception as e:
+        print_fail(f"Unexpected error type: {e}")
+        return False
     finally:
         os.environ["MOCK_MAX_MEMORY"] = str(1024**3 * 16)
 
@@ -257,10 +268,13 @@ def test_backend_non_strict_mode():
     try:
         compiled = torch.compile(simple_model, backend=mock_backend)
         result = compiled(x)
-        print_success(f"Execution completed with warnings (non-strict mode)")
+        print_success("Execution completed with warnings (non-strict mode)")
         return True
+    except BackendCompilerFailed as e:
+        print_fail(f"Should have succeeded in non-strict mode (got BackendCompilerFailed): {e}")
+        return False
     except Exception as e:
-        print_fail(f"Should have succeeded in non-strict mode: {e}")
+        print_fail(f"Unexpected error in non-strict mode: {e}")
         return False
     finally:
         os.environ["MOCK_STRICT"] = "1"
