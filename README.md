@@ -158,6 +158,7 @@ inductor-debug-module/
 ├── debug_module/           # Core package
 |   ├── aot_backend/
 |   │   ├── aot_capture.py  # Artifact capture + SVG + statistics
+|   │   ├── compiler.py     # AOTAutograd orchestration and constraint enforcement
 |   │   ├── mock.py         # AOTAutograd backend with compile_fx
 │   ├── backend/            # Mock backend implementation
 │   │   ├── compiler.py     # Core compilation logic
