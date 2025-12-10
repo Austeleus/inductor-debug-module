@@ -135,8 +135,8 @@ python -m debug_module analyze --type guards
 
 ## Front-End UI
 
-The project includes a **Streamlit dashboard** that provides a more user-friendly way to explore
-TorchInductor debugging utilities — no coding required.
+This project includes a **Streamlit dashboard** that provides a more user-friendly way to explore
+TorchInductor debugging utilities.
 
 ### Features
 
