@@ -180,6 +180,8 @@ inductor-debug-module/
 │   ├── mamba.py            # SSM benchmark
 │   ├── runner.py           # CLI runner
 │   └── results/            # Output directory
+├── frontend/               # Web-based debugging front-end
+│   └── app.py              # Streamlit dashboard for interactive execution
 ├── tests/                  # Test scripts
 │   ├── test_aotbackend.py  # AOTAutograd integrated backend tests
 │   ├── test_kerneldiff.py  # KernelDiff tests
