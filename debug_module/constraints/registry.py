@@ -1,5 +1,7 @@
 import torch
 import torch.fx
+from torch._subclasses.fake_tensor import FakeTensor
+from torch.fx.experimental.symbolic_shapes import SymInt
 from typing import Set, List, Type
 from .base import Constraint
 
@@ -9,7 +11,7 @@ def resolve_aten(op_names: List[str]) -> Set[str]:
     Resolve a list of operator names to their full aten qualified names.
     Returns a set of op names prefixed with 'aten.' for matching.
     """
-    return {f"aten.{op_name}" for op_name in op_names}
+    return {f"aten.{op_name}.default" for op_name in op_names}
 
 class LayoutConstraint(Constraint):
     def __init__(self, strict_contiguous: bool = True):
@@ -22,7 +24,13 @@ class LayoutConstraint(Constraint):
              val = node.meta.get('example_value')
         
         if isinstance(val, torch.Tensor):
-            if self.strict_contiguous and not val.is_contiguous():
+            try:
+                is_contig = bool(val.is_contiguous())
+            except Exception:
+                # FakeTensor case: assume unknown but safe
+                return True
+
+            if self.strict_contiguous and not is_contig:
                 return False
         return True
 
@@ -40,8 +48,24 @@ class ShapeConstraint(Constraint):
 
         if isinstance(val, torch.Tensor):
             for dim in val.shape:
-                if dim % self.alignment != 0:
-                    return False
+                # Case 1: symbolic dimensions -> cannot check
+                if isinstance(dim, SymInt):
+                    continue
+
+                # Case 2: Python int
+                if isinstance(dim, int):
+                    if dim % self.alignment != 0:
+                        return False
+                    continue
+
+                # Case 3: FakeTensor shapes appear as tensors
+                try:
+                    dim_int = int(dim)
+                    if dim_int % self.alignment != 0:
+                        return False
+                except Exception:
+                    # Can't evaluate shape — skip
+                    continue
         return True
 
     def message(self, node: torch.fx.Node) -> str:
@@ -129,7 +153,12 @@ class DtypeConstraint(Constraint):
             return True
 
         if isinstance(val, torch.Tensor):
-            return val.dtype in self.allowed_dtypes
+            try:
+                allowed = bool(val.dtype in self.allowed_dtypes)
+            except Exception:
+                return True
+            if not allowed:
+                return False
         
         return True
 

@@ -137,6 +137,30 @@ python -m debug_module clean
 python -m debug_module analyze --type guards
 ```
 
+## Front-End UI
+
+This project includes a **Streamlit dashboard** that provides a more user-friendly way to explore
+TorchInductor debugging utilities.
+
+### Features
+
+| Feature | What it does |
+|--------|---------------|
+| KernelDiff Viewer | Run BERT kernel-diff tests with visual heatmaps |
+| Artifact Browser | Browse and preview generated artifacts |
+| Full Demo Runner | Trigger the end-to-end demonstration pipeline |
+| Future | UI hooks for benchmarking, guard inspector, constraints |
+
+---
+
+### How to Launch
+
+Make sure the virtual environment is activated:
+
+```bash
+source .venv/bin/activate
+
+
 ## Configuration
 
 ### Environment Variables
@@ -160,6 +184,10 @@ python your_script.py
 ```
 inductor-debug-module/
 ├── debug_module/           # Core package
+|   ├── aot_backend/
+|   │   ├── aot_capture.py  # Artifact capture + SVG + statistics
+|   │   ├── compiler.py     # AOTAutograd orchestration and constraint enforcement
+|   │   ├── mock.py         # AOTAutograd backend with compile_fx
 │   ├── backend/            # Mock backend implementation
 │   │   ├── compiler.py     # Core compilation logic
 │   │   └── mock.py         # Backend entry point
@@ -180,7 +208,10 @@ inductor-debug-module/
 │   ├── mamba.py            # SSM benchmark
 │   ├── runner.py           # CLI runner
 │   └── results/            # Output directory
+├── frontend/               # Web-based debugging front-end
+│   └── app.py              # Streamlit dashboard for interactive execution
 ├── tests/                  # Test scripts
+│   ├── test_aotbackend.py  # AOTAutograd integrated backend tests
 │   ├── test_kerneldiff.py  # KernelDiff tests
 │   ├── test_kerneldiff_bert.py
 │   ├── test_bert.py        # BERT verification
