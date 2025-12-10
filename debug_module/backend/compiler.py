@@ -9,7 +9,8 @@ from ..constraints.registry import (
     DtypeConstraint,
     LayoutConstraint,
     ShapeConstraint,
-    MemoryConstraint
+    MemoryConstraint,
+    deny_ops,
 )
 from ..utils import BackendCompilerFailed
 
@@ -70,7 +71,7 @@ def mock_compile(gm: torch.fx.GraphModule, example_inputs: List[torch.Tensor], c
 
     # Initialize Constraints
     constraints = [
-        UnsupportedOpsConstraint(),
+        UnsupportedOpsConstraint(deny_ops),
         DtypeConstraint(),
         LayoutConstraint(),
         ShapeConstraint(alignment=alignment),

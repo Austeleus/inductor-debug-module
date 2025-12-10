@@ -14,6 +14,7 @@ from ..constraints.registry import (
     MemoryConstraint,
     ShapeConstraint,
     UnsupportedOpsConstraint,
+    deny_ops,
 )
 
 
@@ -109,7 +110,7 @@ class Minifier:
         alignment = int(os.environ.get("MOCK_ALIGNMENT", "1"))
         max_memory = int(os.environ.get("MOCK_MAX_MEMORY", str(16 * 1024**3)))
         return [
-            UnsupportedOpsConstraint(),
+            UnsupportedOpsConstraint(deny_ops),
             DtypeConstraint(),
             LayoutConstraint(),
             ShapeConstraint(alignment=alignment),

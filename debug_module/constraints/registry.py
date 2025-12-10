@@ -87,19 +87,11 @@ class UnsupportedOpsConstraint(Constraint):
         if node.op != 'call_function':
             return True
         
-        # Get the qualified name of the target
-        if hasattr(node.target, '__name__'):
-             # This handles simple functions
-             # For aten ops, it might be complex, so we might need a better stringifier
-             # But for now, let's try to match against the string representation or name
-             pass
-        
-        # A more robust way for torch.ops is often checking the packet or the op itself
-        # For this mock, let's check if the str(node.target) is in the set
-        # Example: node.target might be <OpOverload(op='aten.sin', overload='default')>
-        
         op_name = str(node.target)
-        return op_name not in self.unsupported_ops
+        base_op_name = op_name.rsplit(".", 1)[0] if "." in op_name else op_name
+        if op_name in self.unsupported_ops or base_op_name in self.unsupported_ops:
+            return False
+        return True
 
     def message(self, node: torch.fx.Node) -> str:
         return f"Operator {node.target} is not supported by this accelerator."
