@@ -1,6 +1,6 @@
 import torch
 import torch.fx
-from typing import List
+from typing import List, Optional
 from ..constraints.base import Constraint
 import os
 from ..constraints.registry import (
@@ -9,8 +9,10 @@ from ..constraints.registry import (
     DtypeConstraint,
     LayoutConstraint,
     ShapeConstraint,
-    MemoryConstraint
+    MemoryConstraint,
+    deny_ops,
 )
+from ..minifier.minifier import Minifier
 from ..utils import BackendCompilerFailed
 
 import time
@@ -46,6 +48,27 @@ def save_artifact(gm: torch.fx.GraphModule):
     
     print(f"[MockBackend] Saved artifact to {filename}")
 
+
+def _maybe_generate_repro(
+    gm: torch.fx.GraphModule, example_inputs: List[torch.Tensor], error_message: str
+) -> Optional[str]:
+    repro_dir = os.path.join("debug_artifacts", "repros")
+    os.makedirs(repro_dir, exist_ok=True)
+
+    timestamp = int(time.time())
+    graph_hash = hashlib.md5(str(gm.graph).encode("utf-8")).hexdigest()[:8]
+    repro_path = os.path.join(repro_dir, f"repro_{timestamp}_{graph_hash}.py")
+
+    try:
+        minifier = Minifier(gm, tuple(example_inputs), RuntimeError(error_message))
+        minifier.minify()
+        minifier.generate_repro_script(repro_path)
+        print(f"[MockBackend] Saved repro script to {repro_path}")
+        return repro_path
+    except Exception as exc:
+        print(f"[MockBackend] Failed to generate repro script: {exc}")
+        return None
+
 def mock_compile(gm: torch.fx.GraphModule, example_inputs: List[torch.Tensor], constraints: List[Constraint] = None):
     """
     The core compilation function for the Mock Backend.
@@ -70,7 +93,7 @@ def mock_compile(gm: torch.fx.GraphModule, example_inputs: List[torch.Tensor], c
 
     # Initialize Constraints
     constraints = [
-        UnsupportedOpsConstraint(),
+        UnsupportedOpsConstraint(deny_ops),
         DtypeConstraint(),
         LayoutConstraint(),
         ShapeConstraint(alignment=alignment),
@@ -88,7 +111,9 @@ def mock_compile(gm: torch.fx.GraphModule, example_inputs: List[torch.Tensor], c
                 msg = constraint.message(node)
                 all_errors.append(msg)
                 if strict_mode:
-                    raise BackendCompilerFailed(f"Mock Backend Compilation Failed:\n{msg}")
+                    repro_path = _maybe_generate_repro(gm, example_inputs, msg)
+                    extra = f"\nRepro script saved to: {repro_path}" if repro_path else ""
+                    raise BackendCompilerFailed(f"Mock Backend Compilation Failed:\n{msg}{extra}")
                 else:
                     print(f"[MockBackend] WARNING: {msg}")
     

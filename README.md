@@ -58,6 +58,10 @@ Automatically captures intermediate artifacts from compilation.
 ### 6. CLI Tool
 Command-line interface for managing the debug workflow.
 
+### 7. Minifier
+To play around with minimfier manually, define your graph in manul_peek.py, it 
+will generate script in debug_artifacts/repros/ which you can run to compare.
+
 ## Installation
 
 ```bash
