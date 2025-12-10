@@ -133,6 +133,30 @@ python -m debug_module clean
 python -m debug_module analyze --type guards
 ```
 
+## Front-End UI
+
+The project includes a **Streamlit dashboard** that provides a more user-friendly way to explore
+TorchInductor debugging utilities — no coding required.
+
+### Features
+
+| Feature | What it does |
+|--------|---------------|
+| KernelDiff Viewer | Run BERT kernel-diff tests with visual heatmaps |
+| Artifact Browser | Browse and preview generated artifacts |
+| Full Demo Runner | Trigger the end-to-end demonstration pipeline |
+| Future | UI hooks for benchmarking, guard inspector, constraints |
+
+---
+
+### How to Launch
+
+Make sure the virtual environment is activated:
+
+```bash
+source .venv/bin/activate
+
+
 ## Configuration
 
 ### Environment Variables
