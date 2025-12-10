@@ -147,14 +147,28 @@ TorchInductor debugging utilities.
 | Full Demo Runner | Trigger the end-to-end demonstration pipeline |
 | Future | UI hooks for benchmarking, guard inspector, constraints |
 
----
+## Front-End UI (Streamlit)
 
-### How to Launch
+A graphical interface for interacting with the TorchInductor Debug Module without writing any Python scripts.
 
-Make sure the virtual environment is activated:
+### Launch the Frontend
+
+Ensure your virtual environment is activated:
 
 ```bash
 source .venv/bin/activate
+pip install streamlit
+cd frontend
+streamlit run app.py
+```
+
+This will open the frontend at: 
+
+```bash
+http://localhost:8501
+```
+
+---
 
 
 ## Configuration
