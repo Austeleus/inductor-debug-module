@@ -1,7 +1,17 @@
 import torch
 import torch.fx
+from torch._subclasses.fake_tensor import FakeTensor
+from torch.fx.experimental.symbolic_shapes import SymInt
 from typing import Set, List, Type
 from .base import Constraint
+
+
+def resolve_aten(op_names: List[str]) -> Set[str]:
+    """
+    Resolve a list of operator names to their full aten qualified names.
+    Returns a set of op names prefixed with 'aten.' for matching.
+    """
+    return {f"aten.{op_name}.default" for op_name in op_names}
 
 class LayoutConstraint(Constraint):
     def __init__(self, strict_contiguous: bool = True):
@@ -14,7 +24,13 @@ class LayoutConstraint(Constraint):
              val = node.meta.get('example_value')
         
         if isinstance(val, torch.Tensor):
-            if self.strict_contiguous and not val.is_contiguous():
+            try:
+                is_contig = bool(val.is_contiguous())
+            except Exception:
+                # FakeTensor case: assume unknown but safe
+                return True
+
+            if self.strict_contiguous and not is_contig:
                 return False
         return True
 
@@ -32,8 +48,24 @@ class ShapeConstraint(Constraint):
 
         if isinstance(val, torch.Tensor):
             for dim in val.shape:
-                if dim % self.alignment != 0:
-                    return False
+                # Case 1: symbolic dimensions -> cannot check
+                if isinstance(dim, SymInt):
+                    continue
+
+                # Case 2: Python int
+                if isinstance(dim, int):
+                    if dim % self.alignment != 0:
+                        return False
+                    continue
+
+                # Case 3: FakeTensor shapes appear as tensors
+                try:
+                    dim_int = int(dim)
+                    if dim_int % self.alignment != 0:
+                        return False
+                except Exception:
+                    # Can't evaluate shape — skip
+                    continue
         return True
 
     def message(self, node: torch.fx.Node) -> str:
@@ -79,19 +111,16 @@ class UnsupportedOpsConstraint(Constraint):
         if node.op != 'call_function':
             return True
         
-        # Get the qualified name of the target
-        if hasattr(node.target, '__name__'):
-             # This handles simple functions
-             # For aten ops, it might be complex, so we might need a better stringifier
-             # But for now, let's try to match against the string representation or name
-             pass
-        
-        # A more robust way for torch.ops is often checking the packet or the op itself
-        # For this mock, let's check if the str(node.target) is in the set
-        # Example: node.target might be <OpOverload(op='aten.sin', overload='default')>
-        
-        op_name = str(node.target)
-        return op_name not in self.unsupported_ops
+        target = node.target
+
+        # Must be OpOverload
+        try:
+            op_name = f"{target._schema.name}.{target.overload}"
+        except Exception:
+            # Fallback
+            op_name = str(target)
+
+        return bool(op_name not in self.unsupported_ops)
 
     def message(self, node: torch.fx.Node) -> str:
         return f"Operator {node.target} is not supported by this accelerator."
@@ -121,7 +150,12 @@ class DtypeConstraint(Constraint):
             return True
 
         if isinstance(val, torch.Tensor):
-            return val.dtype in self.allowed_dtypes
+            try:
+                allowed = bool(val.dtype in self.allowed_dtypes)
+            except Exception:
+                return True
+            if not allowed:
+                return False
         
         return True
 
@@ -133,13 +167,41 @@ class DtypeConstraint(Constraint):
         return f"Dtype {dtype} is not allowed. Allowed: {self.allowed_dtypes}"
 
 
+# Unsupported Ops
+lu_like = resolve_aten([
+    "_lu_with_info",
+    "linalg_lu",
+    "linalg_lu_factor",
+    "linalg_lu_factor_ex",
+    "linalg_lu_solve",
+    "lu_solve",
+    "lu_unpack",
+])
+
+conv_like = resolve_aten([
+    "convolution", "convolution_backward",
+    "_convolution", "_convolution_mode", "_convolution_double_backward",
+])
+
+inplace_acts = resolve_aten([
+    "relu_", "silu_", "gelu_", "elu_", "celu_", "leaky_relu_", "rrelu_", "selu_", "relu6_",
+])
+
+prelu_like = resolve_aten([
+    "prelu", "_prelu_kernel", "_prelu_kernel_backward",
+])
+
+value_sel = resolve_aten(["kthvalue", "value_selecting_reduction_backward"])
+
+deny_ops = set().union(lu_like, conv_like, inplace_acts, prelu_like, value_sel)
+
+
 # Default configuration for the Mock Backend
 # We can expand this later or make it configurable via env vars
 DEFAULT_CONSTRAINTS: List[Constraint] = [
     # Example: Let's ban float64 to simulate a lower-precision accelerator
     DtypeConstraint({torch.float32, torch.float16, torch.int64, torch.int32, torch.bool}),
     
-    # Example: Let's ban a random op to test the mechanism (e.g. 'aten.sin.default' if we wanted)
-    # For now, empty list of unsupported ops
-    UnsupportedOpsConstraint(set())
+    # Unsupported ops constraint with deny_ops set
+    UnsupportedOpsConstraint(deny_ops)
 ]

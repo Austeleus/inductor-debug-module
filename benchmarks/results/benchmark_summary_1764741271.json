@@ -1,0 +1,44 @@
+{
+  "timestamp": "2025-12-03 00:54:31",
+  "models_tested": 1,
+  "results": [
+    {
+      "model_name": "Mamba-Small (Custom)",
+      "model_id": "custom-mamba-small",
+      "model_type": "ssm",
+      "parameter_count": 14624000,
+      "timestamp": 1764741270.0962949,
+      "device": "cpu",
+      "graph_count": 0,
+      "graph_break_count": 0,
+      "break_reasons": [],
+      "kerneldiff_passed": true,
+      "max_absolute_error": 0.0,
+      "mean_absolute_error": 0.0,
+      "eager_backend": {
+        "compile_time": 0.0,
+        "avg_inference_time": 0.06341195106506348,
+        "std_inference_time": 0.0068302154541015625,
+        "success": true,
+        "error_message": null,
+        "constraint_warnings": []
+      },
+      "inductor_backend": {
+        "compile_time": 0.49172282218933105,
+        "avg_inference_time": 0.0,
+        "std_inference_time": 0.0,
+        "success": false,
+        "error_message": "Attempt to trace forbidden callable <function mark_static_address at 0x123efc9a0>\n\nfrom user code:\n   File \"/Users/austeleus/PycharmProjects/inductor-debug-module/.venv/lib/python3.12/site-packages/transformers/models/mamba/modeling_mamba.py\", line 840, in forward\n    mamba_outputs = self.backbone(\n  File \"/Users/austeleus/PycharmProjects/inductor-debug-module/.venv/lib/python3.12/site-packages/transformers/models/mamba/modeling_mamba.py\", line 680, in forward\n    cache_params = MambaCache(\n  File \"/Users/austeleus/PycharmProjects/inductor-debug-module/.venv/lib/python3.12/site-packages/torch/_dynamo/polyfills/__init__.py\", line 280, in instantiate_user_defined_class_object\n    obj.__init__(*args, **kwargs)\n  File \"/Users/austeleus/PycharmProjects/inductor-debug-module/.venv/lib/python3.12/site-packages/transformers/models/mamba/modeling_mamba.py\", line 148, in __init__\n    torch._dynamo.mark_static_address(conv_state)\n\nSet TORCHDYNAMO_VERBOSE=1 for the internal stack trace (please do this especially if you're reporting a bug to PyTorch). For even more developer context, set TORCH_LOGS=\"+dynamo\"\n",
+        "constraint_warnings": []
+      },
+      "mock_backend": {
+        "compile_time": 0.00019621849060058594,
+        "avg_inference_time": 0.0,
+        "std_inference_time": 0.0,
+        "success": false,
+        "error_message": "Attempt to trace forbidden callable <function mark_static_address at 0x123efc9a0>\n\nfrom user code:\n   File \"/Users/austeleus/PycharmProjects/inductor-debug-module/.venv/lib/python3.12/site-packages/transformers/models/mamba/modeling_mamba.py\", line 840, in forward\n    mamba_outputs = self.backbone(\n  File \"/Users/austeleus/PycharmProjects/inductor-debug-module/.venv/lib/python3.12/site-packages/transformers/models/mamba/modeling_mamba.py\", line 680, in forward\n    cache_params = MambaCache(\n  File \"/Users/austeleus/PycharmProjects/inductor-debug-module/.venv/lib/python3.12/site-packages/torch/_dynamo/polyfills/__init__.py\", line 280, in instantiate_user_defined_class_object\n    obj.__init__(*args, **kwargs)\n  File \"/Users/austeleus/PycharmProjects/inductor-debug-module/.venv/lib/python3.12/site-packages/transformers/models/mamba/modeling_mamba.py\", line 148, in __init__\n    torch._dynamo.mark_static_address(conv_state)\n\nSet TORCHDYNAMO_VERBOSE=1 for the internal stack trace (please do this especially if you're reporting a bug to PyTorch). For even more developer context, set TORCH_LOGS=\"+dynamo\"\n",
+        "constraint_warnings": []
+      }
+    }
+  ]
+}
