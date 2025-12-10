@@ -242,9 +242,14 @@ class Minifier:
 \"\"\"Auto-generated TorchInductor reproduction script.\"\"\"
 
 import base64
+import os
 import pickle
+import sys
 import torch
 
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, os.pardir))
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
 from debug_module.backend.compiler import mock_compile
 
 SERIALIZED_GRAPH = \"\"\"{serialized_gm}\"\"\" 
