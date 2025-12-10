@@ -45,8 +45,11 @@ class ShapeConstraint(Constraint):
         return True
 
     def message(self, node: torch.fx.Node) -> str:
-        val = node.meta.get('val') or node.meta.get('example_value')
-        return f"Node {node.name} has shape {val.shape}, which violates alignment {self.alignment}."
+        val = node.meta.get('val')
+        if val is None:
+            val = node.meta.get('example_value')
+        shape = getattr(val, "shape", "<unknown>")
+        return f"Node {node.name} has shape {shape}, which violates alignment {self.alignment}."
 
 class MemoryConstraint(Constraint):
     def __init__(self, max_memory_bytes: int = float('inf')):
@@ -72,8 +75,13 @@ class MemoryConstraint(Constraint):
         return True
 
     def message(self, node: torch.fx.Node) -> str:
-        val = node.meta.get('val') or node.meta.get('example_value')
-        size = val.numel() * val.element_size()
+        val = node.meta.get('val')
+        if val is None:
+            val = node.meta.get('example_value')
+        if val is None:
+            size = "unknown"
+        else:
+            size = val.numel() * val.element_size()
         return f"Node {node.name} produces a tensor of size {size} bytes, exceeding limit {self.max_memory_bytes}."
 
 class UnsupportedOpsConstraint(Constraint):

@@ -1,24 +1,13 @@
 import os
 import sys
-import tempfile
 import unittest
 
 import torch
-from torch.fx import Interpreter
-from torch.fx.experimental.proxy_tensor import make_fx
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from debug_module.minifier.minifier import Minifier
-
-
-class MetaCapture(Interpreter):
-    """Interpreter that records concrete values for each FX node."""
-
-    def run_node(self, node):
-        result = super().run_node(node)
-        node.meta["example_value"] = result
-        return result
+from tests.fx_utils import trace_with_metadata
 
 
 class MinifierFailureTests(unittest.TestCase):
@@ -37,18 +26,8 @@ class MinifierFailureTests(unittest.TestCase):
             else:
                 os.environ[key] = value
 
-    def _trace_with_meta(self, model, *inputs):
-        gm = make_fx(model)(*inputs)
-        MetaCapture(gm).run(*inputs)
-        for node in gm.graph.nodes:
-            if "val" in node.meta:
-                if "example_value" not in node.meta:
-                    node.meta["example_value"] = node.meta["val"]
-                del node.meta["val"]
-        return gm
-
     def _run_minifier(self, model, inputs, error_message):
-        gm = self._trace_with_meta(model, *inputs)
+        gm = trace_with_metadata(model, *inputs)
         minifier = Minifier(gm, inputs, RuntimeError(error_message))
         minified = minifier.minify()
         self.assertIsNotNone(minifier.failing_node, "Minifier failed to record offending node")
