@@ -69,8 +69,11 @@ class ShapeConstraint(Constraint):
         return True
 
     def message(self, node: torch.fx.Node) -> str:
-        val = node.meta.get('val') or node.meta.get('example_value')
-        return f"Node {node.name} has shape {val.shape}, which violates alignment {self.alignment}."
+        val = node.meta.get('val')
+        if val is None:
+            val = node.meta.get('example_value')
+        shape = getattr(val, "shape", "<unknown>")
+        return f"Node {node.name} has shape {shape}, which violates alignment {self.alignment}."
 
 class MemoryConstraint(Constraint):
     def __init__(self, max_memory_bytes: int = float('inf')):
@@ -96,8 +99,13 @@ class MemoryConstraint(Constraint):
         return True
 
     def message(self, node: torch.fx.Node) -> str:
-        val = node.meta.get('val') or node.meta.get('example_value')
-        size = val.numel() * val.element_size()
+        val = node.meta.get('val')
+        if val is None:
+            val = node.meta.get('example_value')
+        if val is None:
+            size = "unknown"
+        else:
+            size = val.numel() * val.element_size()
         return f"Node {node.name} produces a tensor of size {size} bytes, exceeding limit {self.max_memory_bytes}."
 
 class UnsupportedOpsConstraint(Constraint):
@@ -111,16 +119,11 @@ class UnsupportedOpsConstraint(Constraint):
         if node.op != 'call_function':
             return True
         
-        target = node.target
-
-        # Must be OpOverload
-        try:
-            op_name = f"{target._schema.name}.{target.overload}"
-        except Exception:
-            # Fallback
-            op_name = str(target)
-
-        return bool(op_name not in self.unsupported_ops)
+        op_name = str(node.target)
+        base_op_name = op_name.rsplit(".", 1)[0] if "." in op_name else op_name
+        if op_name in self.unsupported_ops or base_op_name in self.unsupported_ops:
+            return False
+        return True
 
     def message(self, node: torch.fx.Node) -> str:
         return f"Operator {node.target} is not supported by this accelerator."
