@@ -5,7 +5,7 @@ Test Suite for AOTAutograd + Mock Backend Constraint System
 Validates:
 
   ✔ ConstraintChecker applies constraints to AOT forward & backward graphs
-  ✔ mock_backend(strict=X, constraints=[...]) works properly
+  ✔ aot_mock_backend(strict=X, constraints=[...]) works properly
   ✔ DtypeConstraint
   ✔ ShapeConstraint
   ✔ UnsupportedOpsConstraint
@@ -25,7 +25,7 @@ import torch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from debug_module.aot_backend.mock import mock_backend
+from debug_module.aot_backend.mock import aot_mock_backend
 from debug_module.constraints.registry import (
     DtypeConstraint,
     ShapeConstraint,
@@ -97,7 +97,7 @@ def test_dtype_constraint_strict_fail():
 
     # Only allow float32
     constraints = [DtypeConstraint({torch.float32})]
-    backend = mock_backend(strict=True, constraints=constraints)
+    backend = aot_mock_backend(strict=True, constraints=constraints)
 
     def model(x):
         return x.sin().cos()
@@ -122,7 +122,7 @@ def test_dtype_constraint_warning():
     reset_artifacts()
 
     constraints = [DtypeConstraint({torch.float32})]
-    backend = mock_backend(strict=False, constraints=constraints)
+    backend = aot_mock_backend(strict=False, constraints=constraints)
 
     def model(x):
         return x * 2
@@ -147,7 +147,7 @@ def test_shape_constraint_strict():
     reset_artifacts()
 
     constraints = [ShapeConstraint(alignment=8)]
-    backend = mock_backend(strict=True, constraints=constraints)
+    backend = aot_mock_backend(strict=True, constraints=constraints)
 
     def model(x):
         return x + 1
@@ -169,7 +169,7 @@ def test_shape_constraint_warning():
     reset_artifacts()
 
     constraints = [ShapeConstraint(alignment=8)]
-    backend = mock_backend(strict=False, constraints=constraints)
+    backend = aot_mock_backend(strict=False, constraints=constraints)
 
     def model(x):
         return x.relu()
@@ -196,7 +196,7 @@ def test_unsupported_op():
     sin_op = resolve_aten(["sin"])
 
     constraints = [UnsupportedOpsConstraint(sin_op)]
-    backend = mock_backend(strict=True, constraints=constraints)
+    backend = aot_mock_backend(strict=True, constraints=constraints)
 
     def model(x):
         return torch.sin(x)   # forbidden op
@@ -221,7 +221,7 @@ def test_memory_constraint():
     reset_artifacts()
 
     constraints = [MemoryConstraint(max_memory_bytes=1024)]  # 1 KB
-    backend = mock_backend(strict=True, constraints=constraints)
+    backend = aot_mock_backend(strict=True, constraints=constraints)
 
     def model(x):
         return x * 2  # output > 1 KB
@@ -251,7 +251,7 @@ def test_multiple_constraints():
         UnsupportedOpsConstraint(resolve_aten(["cos"])),
     ]
 
-    backend = mock_backend(strict=True, constraints=constraints)
+    backend = aot_mock_backend(strict=True, constraints=constraints)
 
     def model(x):
         return torch.cos(x + 1.0)  # forbidden + misaligned shape + dtype mismatch possible
@@ -267,6 +267,56 @@ def test_multiple_constraints():
     except RuntimeError:
         ok("Multiple constraints correctly triggered strict failure")
 
+# -----------------------------------------------------------------------------
+# TEST 8 — FORCE INDUCTOR IR + KERNEL GENERATION
+# -----------------------------------------------------------------------------
+def test_inductor_ir_and_kernels_dump():
+    banner("TEST 8 — Inductor Lowered IR + Kernel Dump")
+
+    reset_artifacts()
+
+    backend = aot_mock_backend(strict=False, constraints=[])
+
+    def model(x, y):
+        # forces matmul + elementwise + reduction
+        for _ in range(3):
+            x = x @ y
+            x = torch.relu(x)
+        return x.sum()
+
+    # Big enough to avoid eager fallback
+    x = torch.randn(512, 512, requires_grad=True)
+    y = torch.randn(512, 512, requires_grad=True)
+
+    info("Compiling with Inductor and executing kernels...")
+
+    compiled = torch.compile(
+        model,
+        backend=backend,
+        mode="max-autotune",   # IMPORTANT
+    )
+
+    out = compiled(x, y)
+    out.backward()
+
+    # Verify artifacts exist
+    ir_root = "debug_artifacts/inductor_ir"
+    kernel_root = "debug_artifacts/inductor_kernels"
+
+    def has_any_ext(root, exts):
+        if not os.path.isdir(root):
+            return False
+        for dirpath, _, filenames in os.walk(root):
+            for fn in filenames:
+                if os.path.splitext(fn)[1] in exts:
+                    return True
+        return False
+
+    has_ir = has_any_ext(ir_root, {".ttir", ".llir", ".mlir"})
+    has_kernels = has_any_ext(kernel_root, {".py", ".cpp", ".cu", ".c", ".h", ".s"})
+
+    if not (has_ir or has_kernels):
+        fail("No Inductor IR or kernel artifacts found")
 
 # -----------------------------------------------------------------------------
 # MAIN
@@ -282,6 +332,8 @@ def main():
         ("Unsupported op",          test_unsupported_op),
         ("Memory constraint",       test_memory_constraint),
         ("Multiple constraints",    test_multiple_constraints),
+        ("Inductor IR + kernels",   test_inductor_ir_and_kernels_dump),
+
     ]
 
     passed = 0

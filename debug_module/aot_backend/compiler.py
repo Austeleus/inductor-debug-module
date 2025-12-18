@@ -67,6 +67,7 @@ def compile_graph_with_aot(gm: torch.fx.GraphModule, example_inputs, constraints
         • constraint checking
         • compile_fx lowering
     """
+    _enable_inductor_debug()
     # Save pre-AOT FX graph before AOTAutograd touches it
     save_pre_aot_artifact(gm)
 

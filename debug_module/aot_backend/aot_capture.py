@@ -7,6 +7,7 @@ import time
 import hashlib
 import json
 import shutil
+import glob
 
 def save_svg_graph(gm: torch.fx.GraphModule, filename: str):
     """
@@ -164,38 +165,125 @@ def save_artifact(gm: torch.fx.GraphModule):
     
     print(f"[MockBackend] Saved artifact to {filename}")
 
+_INDUCTOR_DEBUG_ENABLED = False
+
 def _enable_inductor_debug():
-    os.environ["TORCH_LOGS"] = "+inductor"
-    os.environ["TORCHINDUCTOR_DEBUG"] = "1"
-    os.environ["TORCHINDUCTOR_DUMP_GRAPH"] = "1"
-    os.environ["TORCHINDUCTOR_DUMP_KERNELS"] = "1"
-
-
-def dump_inductor_artifacts():
     """
-    Moves TorchInductor IR + generated kernels into debug_artifacts/.
+    Force TorchInductor to write debug artifacts to disk, in a stable repo-local folder.
+    Must be called BEFORE the first compile_fx() that you want debug for.
     """
-    src = os.path.join(os.getcwd(), "torchinductor")
-    if not os.path.exists(src):
+    global _INDUCTOR_DEBUG_ENABLED
+    if _INDUCTOR_DEBUG_ENABLED:
         return
 
-    timestamp = int(time.time())
+    debug_root = os.path.abspath("torch_compile_debug")
+    os.makedirs(debug_root, exist_ok=True)
 
-    ir_dst = f"debug_artifacts/inductor_ir/ir_{timestamp}"
-    kernel_dst = f"debug_artifacts/kernels/kernels_{timestamp}"
+    # Force a stable debug dir inside the repo (works on many torch versions).
+    # If your torch ignores TORCH_COMPILE_DEBUG_DIR, it will still write elsewhere,
+    # and dump_inductor_artifacts() will fall back to searching.
+    os.environ.setdefault("TORCH_COMPILE_DEBUG_DIR", debug_root)
 
-    os.makedirs(ir_dst, exist_ok=True)
-    os.makedirs(kernel_dst, exist_ok=True)
+    # Inductor debug + save files (best effort across torch versions)
+    os.environ.setdefault("TORCHINDUCTOR_DEBUG", "1")
+    os.environ.setdefault("TORCHINDUCTOR_SAVE_DEBUG_FILES", "1")
 
-    for root, _, files in os.walk(src):
-        for f in files:
-            src_path = os.path.join(root, f)
-            if f.endswith((".txt", ".py")):
-                shutil.copy2(src_path, ir_dst)
-            if f.endswith((".triton", ".ttir", ".cpp", ".cu")):
-                shutil.copy2(src_path, kernel_dst)
+    # Useful logs (don’t require, but helps)
+    os.environ.setdefault("TORCH_LOGS", "+inductor")
 
-    shutil.rmtree(src, ignore_errors=True)
+    # Best-effort config toggles (safe if fields don’t exist)
+    try:
+        import torch._inductor.config as inductor_config
+        inductor_config.debug = True
+        if hasattr(inductor_config, "save_debug_files"):
+            inductor_config.save_debug_files = True
+    except Exception:
+        pass
 
-    print(f"[MockBackend] Saved Inductor IR to {ir_dst}")
-    print(f"[MockBackend] Saved generated kernels to {kernel_dst}")
+    _INDUCTOR_DEBUG_ENABLED = True
+
+def dump_inductor_artifacts(tag: str = "inductor"):
+    """
+    Copy TorchInductor-generated debug files into:
+      debug_artifacts/inductor_ir/<ts>/...
+      debug_artifacts/inductor_kernels/<ts>/...
+
+    Searches common locations:
+      ./torch_compile_debug/run_*/torchinductor/
+      $TORCH_COMPILE_DEBUG_DIR/run_*/torchinductor/
+      /tmp/torchinductor_*   (fallback)
+      /var/tmp/torchinductor_* (fallback)
+    """
+    base_dir = "debug_artifacts"
+    ts = int(time.time())
+
+    ir_dir = os.path.join(base_dir, "inductor_ir", str(ts))
+    kernel_dir = os.path.join(base_dir, "inductor_kernels", str(ts))
+    os.makedirs(ir_dir, exist_ok=True)
+    os.makedirs(kernel_dir, exist_ok=True)
+
+    # Extensions we treat as "lowered IR" vs "generated kernels/code"
+    IR_EXTS = {".ttir", ".llir", ".mlir"}
+    KERNEL_EXTS = {".py", ".cpp", ".cu", ".c", ".h", ".s"}
+
+    # Candidate roots
+    candidates = []
+
+    # 1) Repo-local torch_compile_debug (most common with torch>=2.1)
+    candidates += glob.glob(os.path.join(os.getcwd(), "torch_compile_debug", "run_*", "torchinductor"))
+
+    # 2) Respect env override if present
+    debug_dir = os.environ.get("TORCH_COMPILE_DEBUG_DIR")
+    if debug_dir:
+        candidates += glob.glob(os.path.join(debug_dir, "run_*", "torchinductor"))
+
+    # 3) Fallback older/alternate locations
+    for pat in ("/tmp/torchinductor_*", "/var/tmp/torchinductor_*"):
+        candidates += glob.glob(pat)
+
+    # Keep only directories, newest first
+    candidates = [p for p in candidates if os.path.isdir(p)]
+    candidates.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+
+    if not candidates:
+        print("[MockBackend] No Inductor debug directories found (nothing to copy)")
+        return
+
+    copied_ir = 0
+    copied_kernels = 0
+
+    # Copy from the newest candidate that contains anything interesting
+    for root in candidates[:5]:
+        # Walk all files
+        for src in glob.glob(os.path.join(root, "**", "*"), recursive=True):
+            if os.path.isdir(src):
+                continue
+
+            ext = os.path.splitext(src)[1]
+            rel = os.path.relpath(src, root)
+
+            try:
+                if ext in IR_EXTS:
+                    dst = os.path.join(ir_dir, rel)
+                    os.makedirs(os.path.dirname(dst), exist_ok=True)
+                    shutil.copy2(src, dst)
+                    copied_ir += 1
+                elif ext in KERNEL_EXTS:
+                    dst = os.path.join(kernel_dir, rel)
+                    os.makedirs(os.path.dirname(dst), exist_ok=True)
+                    shutil.copy2(src, dst)
+                    copied_kernels += 1
+            except Exception:
+                pass
+
+        # If we copied anything from this root, stop
+        if copied_ir or copied_kernels:
+            break
+
+    if copied_ir:
+        print(f"[MockBackend] Saved Inductor lowered IR ({copied_ir} files) → {ir_dir}")
+    if copied_kernels:
+        print(f"[MockBackend] Saved Inductor kernels ({copied_kernels} files) → {kernel_dir}")
+
+    if not copied_ir and not copied_kernels:
+        print("[MockBackend] Found Inductor debug dir but no matching IR/kernel files to copy")
