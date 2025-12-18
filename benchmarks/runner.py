@@ -15,7 +15,7 @@ import json
 import os
 import sys
 import time
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -33,6 +33,79 @@ class Colors:
     RED = '\033[91m'
     BOLD = '\033[1m'
     END = '\033[0m'
+
+
+class WandbLogger:
+    """Optional Weights & Biases logger for benchmark runs."""
+
+    def __init__(self, run, wandb_module):
+        self._run = run
+        self._wandb = wandb_module
+
+    @classmethod
+    def create(
+        cls,
+        enabled: bool,
+        project: Optional[str],
+        run_name: Optional[str],
+        tags: Optional[List[str]],
+        mode: Optional[str],
+        config: Dict[str, Any],
+    ):
+        if not enabled:
+            return None
+        try:
+            import wandb  # type: ignore
+        except ImportError:
+            print(f"{Colors.YELLOW}Warning: wandb not installed; disabling --wandb flag{Colors.END}")
+            return None
+
+        run = wandb.init(
+            project=project or os.environ.get("WANDB_PROJECT", "inductor-debug-module"),
+            name=run_name,
+            tags=tags,
+            mode=mode,
+            config=config,
+        )
+        return cls(run, wandb)
+
+    def log_benchmark(self, result):
+        metrics = {
+            "model_name": result.model_name,
+            "model_type": result.model_type,
+            "parameter_count": result.parameter_count,
+            "device": result.device,
+            "kerneldiff_passed": result.kerneldiff_passed,
+            "max_absolute_error": result.max_absolute_error,
+            "mean_absolute_error": result.mean_absolute_error,
+            "graph_count": result.graph_count,
+            "graph_break_count": result.graph_break_count,
+        }
+
+        def add_backend(prefix: str, backend_result):
+            if backend_result is None:
+                return
+            metrics[f"{prefix}/compile_time_s"] = backend_result.compile_time
+            metrics[f"{prefix}/avg_inference_ms"] = backend_result.avg_inference_time * 1000
+            metrics[f"{prefix}/std_inference_ms"] = backend_result.std_inference_time * 1000
+            metrics[f"{prefix}/success"] = float(bool(backend_result.success))
+            if backend_result.constraint_warnings:
+                metrics[f"{prefix}/constraint_warnings"] = len(backend_result.constraint_warnings)
+
+        add_backend("eager", result.eager_result)
+        add_backend("inductor", result.inductor_result)
+        add_backend("mock", result.mock_result)
+
+        self._run.log(metrics)
+
+        summary_html = f"<pre>{result.summary()}</pre>"
+        self._run.log({f"summary/{result.model_name}": self._wandb.Html(summary_html)})
+
+    def log_summary_report(self, text: str):
+        self._run.log({"benchmark/summary_report": self._wandb.Html(f"<pre>{text}</pre>")})
+
+    def finish(self):
+        self._run.finish()
 
 
 def print_header(text: str):
@@ -271,6 +344,33 @@ Examples:
         action="store_true",
         help="List available benchmarks and exit",
     )
+    parser.add_argument(
+        "--wandb",
+        action="store_true",
+        help="Enable Weights & Biases logging for benchmark runs",
+    )
+    parser.add_argument(
+        "--wandb-project",
+        default=None,
+        help="Override the W&B project name (defaults to WANDB_PROJECT env or inductor-debug-module)",
+    )
+    parser.add_argument(
+        "--wandb-run-name",
+        default=None,
+        help="Optional run name to show in the W&B UI",
+    )
+    parser.add_argument(
+        "--wandb-tag",
+        action="append",
+        dest="wandb_tags",
+        help="Additional W&B tags (can be provided multiple times)",
+    )
+    parser.add_argument(
+        "--wandb-mode",
+        default=None,
+        choices=["online", "offline", "disabled"],
+        help="Pass-through for wandb.init(mode=...)",
+    )
 
     args = parser.parse_args()
 
@@ -304,6 +404,20 @@ Examples:
     print(f"Inference runs: {args.runs}")
     print(f"Output directory: {args.output_dir}")
 
+    wandb_logger = WandbLogger.create(
+        enabled=args.wandb,
+        project=args.wandb_project,
+        run_name=args.wandb_run_name,
+        tags=args.wandb_tags,
+        mode=args.wandb_mode,
+        config={
+            "device": args.device,
+            "warmup_runs": args.warmup,
+            "inference_runs": args.runs,
+            "models": models_to_run,
+        },
+    )
+
     results: List[BenchmarkResult] = []
 
     for model_key in models_to_run:
@@ -318,6 +432,8 @@ Examples:
                 save_results=True,
             )
             results.append(result)
+            if wandb_logger:
+                wandb_logger.log_benchmark(result)
             print(f"\n{Colors.GREEN}✓ {info['name']} benchmark complete{Colors.END}")
 
         except Exception as e:
@@ -330,6 +446,8 @@ Examples:
         print_header("Generating Summary Report")
         report = generate_summary_report(results, args.output_dir)
         print("\n" + report)
+        if wandb_logger:
+            wandb_logger.log_summary_report(report)
 
     # Final summary
     print_header("Benchmark Complete")
@@ -337,6 +455,9 @@ Examples:
 
     passed = sum(1 for r in results if r.kerneldiff_passed)
     print(f"KernelDiff passed: {passed}/{len(results)}")
+
+    if wandb_logger:
+        wandb_logger.finish()
 
     return 0 if len(results) == len(models_to_run) else 1
 

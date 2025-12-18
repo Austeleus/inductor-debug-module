@@ -15,7 +15,12 @@ def save_svg_graph(gm: torch.fx.GraphModule, filename: str):
     os.makedirs(artifact_dir, exist_ok=True)
 
     drawer = FxGraphDrawer(gm, "AOT Graph")
-    svg_data = drawer.get_dot_graph().create_svg()
+    try:
+        svg_data = drawer.get_dot_graph().create_svg()
+    except FileNotFoundError as exc:
+        # Graphviz `dot` is optional; skip SVG capture when unavailable.
+        print(f"[MockBackend] WARNING: Skipping SVG generation ({exc})")
+        return
 
     filepath = os.path.join(artifact_dir, filename)
     with open(filepath, "wb") as f:

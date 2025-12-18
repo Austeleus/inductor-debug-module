@@ -16,6 +16,7 @@ Usage:
     python run_goal_showcase.py --goal kernel       # run selected goals
     python run_goal_showcase.py --list              # list available goals
     python run_goal_showcase.py --dry-run           # only print planned commands
+    python run_goal_showcase.py --summary-file out.txt  # save summary report
 """
 
 from __future__ import annotations
@@ -209,6 +210,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--list", action="store_true", help="List available goals and exit.")
     parser.add_argument("--dry-run", action="store_true", help="Print planned commands without executing.")
     parser.add_argument("--stop-on-failure", action="store_true", help="Abort as soon as a command fails.")
+    parser.add_argument(
+        "--summary-file",
+        default="goal_showcase_report.txt",
+        help="Where to save the final summary report (set empty string to skip).",
+    )
     return parser.parse_args()
 
 
@@ -306,18 +312,32 @@ def main() -> int:
                     return overall_exit
 
     if not args.dry_run:
-        print("\n" + "=" * 80)
-        print("Goal Showcase Summary")
-        print("=" * 80)
+        summary_lines = [
+            "=" * 80,
+            "Goal Showcase Summary",
+            "=" * 80,
+        ]
+
+        print("\n" + "\n".join(summary_lines[:3]))
         for item in summary:
-            print(
+            line = (
                 f"[{item['status']}] {item['goal']} :: {item['name']} "
                 f"(exit={item['return_code']}, {item['elapsed']:.1f}s)"
             )
+            print(line)
+            summary_lines.append(line)
 
         failed = [item for item in summary if item["status"] == "FAIL"]
         if failed:
-            print("\nFailures detected. Re-run with --goal to focus on specific sections.")
+            msg = "Failures detected. Re-run with --goal to focus on specific sections."
+            print("\n" + msg)
+            summary_lines.append("")
+            summary_lines.append(msg)
+
+        if args.summary_file:
+            summary_path = Path(args.summary_file)
+            summary_path.write_text("\n".join(summary_lines) + "\n", encoding="utf-8")
+            print(f"\nSummary written to {summary_path}")
 
     return overall_exit
 

@@ -250,6 +250,8 @@ def test_backend_non_strict_mode():
 
     os.environ["MOCK_STRICT"] = "0"
     os.environ["MOCK_ALIGNMENT"] = "8"  # Will trigger warning
+    previous_max_mem = os.environ.get("MOCK_MAX_MEMORY")
+    os.environ["MOCK_MAX_MEMORY"] = str(1024**3 * 16)  # ensure no memory-triggered failures
 
     import importlib
     import debug_module.backend.compiler as compiler
@@ -279,6 +281,10 @@ def test_backend_non_strict_mode():
     finally:
         os.environ["MOCK_STRICT"] = "1"
         os.environ["MOCK_ALIGNMENT"] = "1"
+        if previous_max_mem is None:
+            os.environ.pop("MOCK_MAX_MEMORY", None)
+        else:
+            os.environ["MOCK_MAX_MEMORY"] = previous_max_mem
 
 
 # ============================================================================
@@ -408,11 +414,16 @@ def test_artifact_generation():
     if new_count > existing:
         print_success(f"New artifacts generated! Total: {new_count}")
 
-        # Show latest artifact
-        files = sorted(os.listdir(artifact_dir), reverse=True)
-        if files:
-            latest = files[0]
-            print_info(f"Latest artifact: {latest}")
+        # Show latest artifact file (skip directories like visualizations/)
+        file_entries = [
+            name for name in os.listdir(artifact_dir)
+            if os.path.isfile(os.path.join(artifact_dir, name))
+        ]
+        file_entries.sort(reverse=True)
+
+        if file_entries:
+            latest = file_entries[0]
+            print_info(f"Latest artifact file: {latest}")
 
             # Show first few lines
             with open(os.path.join(artifact_dir, latest), 'r') as f:
@@ -420,6 +431,8 @@ def test_artifact_generation():
                 print_info("Artifact preview:")
                 for line in lines:
                     print(f"    {line.rstrip()}")
+        else:
+            print_warning("Artifacts exist but only directories found (no file preview).")
         return True
     else:
         print_fail("No new artifacts generated!")

@@ -1,0 +1,15 @@
+================================================================================
+Goal Showcase Summary
+================================================================================
+[PASS] Inductor CLI & Artifact Capture :: AOTAutograd capture suite (exit=0, 6.5s)
+[PASS] Inductor CLI & Artifact Capture :: CLI artifact listing (exit=0, 1.3s)
+[PASS] Guard Inspector & Constraint Policy :: Comprehensive guard walkthrough (exit=0, 6.8s)
+[PASS] KernelDiff Harness & Metrics :: KernelDiff unit suite (exit=0, 1.8s)
+[FAIL] Mock Backend Constraint Simulation :: Mock backend constraint tests (exit=1, 2.3s)
+[PASS] Minifier & Repro Workflow :: Minifier unit tests (exit=0, 1.5s)
+[PASS] Minifier & Repro Workflow :: Backend repro integration (exit=0, 1.3s)
+[PASS] Benchmark Demos (Transformer/ResNet/SSM) :: Transformer block KernelDiff demo (exit=0, 3.5s)
+[PASS] Benchmark Demos (Transformer/ResNet/SSM) :: ResNet benchmark (quick) (exit=0, 7.6s)
+[PASS] Benchmark Demos (Transformer/ResNet/SSM) :: SSM benchmark (custom small) (exit=0, 5.9s)
+
+Failures detected. Re-run with --goal to focus on specific sections.

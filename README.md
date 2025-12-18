@@ -120,9 +120,17 @@ python -m benchmarks.runner --model bert --model resnet
 # With custom settings
 python -m benchmarks.runner --all --warmup 3 --runs 10 --device cuda
 
+# With optional Weights & Biases tracking
+python -m benchmarks.runner --all --wandb --wandb-project my-project --wandb-run-name hpml-demo
+
 # List available benchmarks
 python -m benchmarks.runner --list
 ```
+
+> **Tip:** W&B logging is optional. Use `--wandb` to enable it, optionally providing
+> `--wandb-project`, `--wandb-run-name`, `--wandb-tag`, or `--wandb-mode`. If the `wandb`
+> package is not installed, the runner will automatically disable logging and continue
+> normally.
 
 ### Using the CLI
 
