@@ -1,6 +1,9 @@
 # TorchInductor Debug Module
 
-A comprehensive debugging toolkit for developing custom accelerators with PyTorch's TorchInductor compiler. This project provides tools to simulate hardware constraints, compare outputs across backends, and benchmark model performance.
+A comprehensive debugging toolkit for developing custom accelerators with PyTorch's TorchInductor compiler. This project provides tools to simulate hardware constraints, compare outputs across backends, generate detailed reports, and benchmark model performance.
+
+**Sponsored by:** IBM Research
+**Course:** HPML (High Performance Machine Learning)
 
 ## Features
 
@@ -8,38 +11,54 @@ A comprehensive debugging toolkit for developing custom accelerators with PyTorc
 Simulates a custom hardware accelerator with configurable constraints.
 
 **Constraints:**
+- **Shape**: Enforce dimension alignment (e.g., multiples of 8, 16, 32)
 - **Dtype**: Restrict supported data types (e.g., no `float64`)
+- **Memory**: Enforce maximum memory usage limits per tensor
 - **Layout**: Enforce contiguous memory layouts
-- **Shape**: Enforce dimension alignment (e.g., multiples of 16)
-- **Memory**: Enforce maximum memory usage limits
-- **Unsupported Ops**: Denylist specific operators
+- **Unsupported Ops**: Denylist specific operators (LU decomposition, certain convolutions, etc.)
 
 **Modes:**
-- **Strict Mode**: Hard failure on constraint violation
-- **Warning Mode**: Log warnings but allow execution (soft fallback)
+- **Strict Mode** (`MOCK_STRICT=1`): Hard failure on constraint violation with reproduction script generation
+- **Warning Mode** (`MOCK_STRICT=0`): Log warnings but allow execution
 
 ### 2. KernelDiff Harness
-Compare model outputs between reference (GPU/Inductor) and mock backend.
+Compare model outputs between reference (eager/Inductor) and mock backend to detect numerical discrepancies.
 
-- **Comprehensive Metrics**: Max/mean absolute error, RMSE, mismatch percentage
+- **Comprehensive Metrics**: Max/mean absolute error, relative error, RMSE, mismatch percentage
+- **Tolerance Configuration**: Configurable atol/rtol for different precision requirements
+- **Error Localization**: Identifies exact location of worst errors
 - **Visualization**: Error heatmaps, comparison summary plots
 - **Complex Output Handling**: Supports nested dicts, tuples, HuggingFace outputs
-- **JSON Reports**: Structured output for CI/CD integration
 
-### 3. Guard Inspector
+### 3. HTML Report Generator
+Generate visual HTML reports summarizing debug artifacts and benchmark results.
+
+- **Summary Statistics**: Total artifacts, models tested, pass rates
+- **Benchmark Comparison**: Side-by-side eager vs inductor timing with speedup calculation
+- **Constraint Analysis**: Grouped warnings by model with categorization
+- **KernelDiff Results**: Numerical accuracy status for each model
+
+### 4. Backend Adapter Interface
+Abstract interface for integrating custom accelerator backends.
+
+- **AcceleratorAdapter**: Base class for custom backends
+- **AcceleratorCapabilities**: Define supported dtypes, ops, memory limits
+- **IntegratedMockAdapter**: Reference implementation bridging to existing mock backend
+
+### 5. Guard Inspector
 Analyzes specialization guards that cause graph breaks or recompilations.
 
 - **Graph Analysis**: Count graphs and graph breaks
 - **Break Reasons**: Identify why compilation failed
 - **Guard Details**: Per-graph guard information
 
-### 4. Benchmarking Suite
+### 6. Benchmarking Suite
 Benchmark models across multiple backends with detailed metrics.
 
 **Supported Models:**
 - BERT-base-multilingual (~178M parameters) - Transformer encoder
 - ResNet-18 (~11M parameters) - Convolutional neural network
-- Custom SSM (~27M parameters) - State space model
+- Custom SSM (~27M parameters) - State space model (Mamba-style)
 
 **Metrics Collected:**
 - Compilation time per backend
@@ -48,25 +67,38 @@ Benchmark models across multiple backends with detailed metrics.
 - Constraint violations
 - KernelDiff pass/fail status
 
-### 5. Artifact Capture
-Automatically captures intermediate artifacts from compilation.
+### 7. Minifier
+Automatically generates minimal reproduction scripts when constraint violations occur.
 
-- **FX Graphs**: Saves to `debug_artifacts/`
-- **Metadata**: Node shapes, dtypes, stride information
-- **Timestamped**: Unique filenames prevent overwrites
+- **Serialized Graphs**: Captures the exact FX graph state
+- **Example Inputs**: Includes the inputs that triggered the failure
+- **Standalone Scripts**: Can be shared for debugging without the full codebase
 
-### 6. CLI Tool
+### 8. CLI Tool
 Command-line interface for managing the debug workflow.
 
-### 7. Minifier
-To play around with minimfier manually, define your graph in manul_peek.py, it 
-will generate script in debug_artifacts/repros/ which you can run to compare.
+```bash
+# List captured artifacts
+python -m debug_module list
+
+# Analyze artifacts
+python -m debug_module analyze --type guards      # Dynamo guards analysis
+python -m debug_module analyze --type constraints # Constraint violations
+python -m debug_module analyze --type summary     # Overall summary
+
+# Generate reports
+python -m debug_module report --format html       # Visual HTML report
+python -m debug_module report --format json       # Machine-readable JSON
+
+# Clean artifacts
+python -m debug_module clean
+```
 
 ## Installation
 
 ```bash
 # Clone the repository
-git clone <repo-url>
+git clone https://github.com/Austeleus/inductor-debug-module.git
 cd inductor-debug-module
 
 # Create virtual environment
@@ -82,11 +114,24 @@ pip install torch --index-url https://download.pytorch.org/whl/cu121
 
 ## Quick Start
 
+### Interactive Demo
+
+Run the interactive demo for a guided tour of all features:
+
+```bash
+python demo.py
+```
+
 ### Using the Mock Backend
 
 ```python
 import torch
+import os
 from debug_module import mock_backend
+
+# Configure constraints
+os.environ['MOCK_STRICT'] = '1'      # Fail on violations
+os.environ['MOCK_ALIGNMENT'] = '8'   # Require 8-byte alignment
 
 model = YourModel()
 compiled_model = torch.compile(model, backend=mock_backend)
@@ -96,14 +141,15 @@ output = compiled_model(input_tensor)
 ### Running KernelDiff Comparison
 
 ```python
-from debug_module.diff import KernelDiffHarness
+from debug_module.diff import compare_tensors, KernelDiffHarness
 
-harness = KernelDiffHarness(
-    model=model,
-    example_inputs=inputs,
-    reference_backend="eager",  # or "inductor" on GPU
-)
+# Simple tensor comparison
+result = compare_tensors(eager_output, compiled_output)
+print(f"Match: {result.passed}")
+print(f"Max Error: {result.max_absolute_error:.2e}")
 
+# Full model comparison with visualization
+harness = KernelDiffHarness(model, example_inputs)
 report = harness.compare(generate_visualizations=True)
 print(report.summary())
 ```
@@ -120,68 +166,19 @@ python -m benchmarks.runner --model bert --model resnet
 # With custom settings
 python -m benchmarks.runner --all --warmup 3 --runs 10 --device cuda
 
-# With optional Weights & Biases tracking
-python -m benchmarks.runner --all --wandb --wandb-project my-project --wandb-run-name hpml-demo
-
 # List available benchmarks
 python -m benchmarks.runner --list
 ```
 
-> **Tip:** W&B logging is optional. Use `--wandb` to enable it, optionally providing
-> `--wandb-project`, `--wandb-run-name`, `--wandb-tag`, or `--wandb-mode`. If the `wandb`
-> package is not installed, the runner will automatically disable logging and continue
-> normally.
-
-### Using the CLI
+### Generating Reports
 
 ```bash
-# List captured artifacts
-python -m debug_module list
+# Generate HTML report (after running benchmarks)
+python -m debug_module report --format html
 
-# Clean old artifacts
-python -m debug_module clean
-
-# Analyze guards
-python -m debug_module analyze --type guards
+# Open the report
+# → debug_artifacts/reports/debug_report_<timestamp>.html
 ```
-
-## Front-End UI
-
-This project includes a **Streamlit dashboard** that provides a more user-friendly way to explore
-TorchInductor debugging utilities.
-
-### Features
-
-| Feature | What it does |
-|--------|---------------|
-| KernelDiff Viewer | Run BERT kernel-diff tests with visual heatmaps |
-| Artifact Browser | Browse and preview generated artifacts |
-| Full Demo Runner | Trigger the end-to-end demonstration pipeline |
-| Future | UI hooks for benchmarking, guard inspector, constraints |
-
-## Front-End UI (Streamlit)
-
-A graphical interface for interacting with the TorchInductor Debug Module without writing any Python scripts.
-
-### Launch the Frontend
-
-Ensure your virtual environment is activated:
-
-```bash
-source .venv/bin/activate
-pip install streamlit
-cd frontend
-streamlit run app.py
-```
-
-This will open the frontend at: 
-
-```bash
-http://localhost:8501
-```
-
----
-
 
 ## Configuration
 
@@ -189,15 +186,15 @@ http://localhost:8501
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `MOCK_STRICT` | Enable strict mode (1) or warning mode (0) | `0` |
-| `MOCK_ALIGNMENT` | Shape alignment requirement | `8` |
-| `MOCK_MAX_MEMORY` | Maximum memory in bytes | `inf` |
+| `MOCK_STRICT` | Enable strict mode (1) or warning mode (0) | `1` |
+| `MOCK_ALIGNMENT` | Shape alignment requirement for all dimensions | `1` |
+| `MOCK_MAX_MEMORY` | Maximum memory per tensor in bytes | `17179869184` (16GB) |
 
 ```bash
-# Example: Strict mode with 16-byte alignment
+# Example: Strict mode with 8-byte alignment
 export MOCK_STRICT=1
-export MOCK_ALIGNMENT=16
-export MOCK_MAX_MEMORY=17179869184  # 16 GB
+export MOCK_ALIGNMENT=8
+export MOCK_MAX_MEMORY=1073741824  # 1 GB
 python your_script.py
 ```
 
@@ -206,22 +203,29 @@ python your_script.py
 ```
 inductor-debug-module/
 ├── debug_module/           # Core package
-|   ├── aot_backend/
-|   │   ├── aot_capture.py  # Artifact capture + SVG + statistics
-|   │   ├── compiler.py     # AOTAutograd orchestration and constraint enforcement
-|   │   ├── mock.py         # AOTAutograd backend with compile_fx
+│   ├── adapters/           # Backend adapter interface
+│   │   ├── base.py         # AcceleratorAdapter abstract class
+│   │   ├── mock_adapter.py # Standalone mock implementation
+│   │   └── integrated_adapter.py  # Bridges to existing mock backend
+│   ├── aot_backend/        # AOTAutograd integration
+│   │   ├── aot_capture.py  # Artifact capture + SVG + statistics
+│   │   └── mock.py         # AOTAutograd backend
 │   ├── backend/            # Mock backend implementation
 │   │   ├── compiler.py     # Core compilation logic
 │   │   └── mock.py         # Backend entry point
 │   ├── constraints/        # Constraint system
 │   │   ├── base.py         # Abstract constraint class
 │   │   └── registry.py     # Constraint implementations
-│   ├── guards/             # Guard inspection
-│   │   └── inspector.py    # GuardInspector class
 │   ├── diff/               # KernelDiff harness
 │   │   ├── harness.py      # Main comparison class
 │   │   ├── metrics.py      # Error metrics
 │   │   └── visualization.py # Heatmap generation
+│   ├── guards/             # Guard inspection
+│   │   └── inspector.py    # GuardInspector class
+│   ├── minifier/           # Reproduction script generator
+│   │   └── minifier.py     # Minifier class
+│   ├── reports/            # Report generation
+│   │   └── generator.py    # HTML/JSON report generator
 │   └── cli.py              # Command-line interface
 ├── benchmarks/             # Benchmarking suite
 │   ├── base.py             # BaseBenchmark class
@@ -230,72 +234,62 @@ inductor-debug-module/
 │   ├── mamba.py            # SSM benchmark
 │   ├── runner.py           # CLI runner
 │   └── results/            # Output directory
-├── frontend/               # Web-based debugging front-end
-│   └── app.py              # Streamlit dashboard for interactive execution
-├── tests/                  # Test scripts
-│   ├── test_aotbackend.py  # AOTAutograd integrated backend tests
-│   ├── test_kerneldiff.py  # KernelDiff tests
-│   ├── test_kerneldiff_bert.py
-│   ├── test_bert.py        # BERT verification
+├── frontend/               # Streamlit dashboard
+│   └── app.py              # Web UI for interactive execution
+├── tests/                  # Test suite (97 tests)
+│   ├── test_adapters.py    # Backend adapter tests
+│   ├── test_cli.py         # CLI tests
+│   ├── test_reports.py     # Report generator tests
 │   ├── test_constraints.py # Constraint tests
+│   ├── test_kerneldiff.py  # KernelDiff tests
 │   ├── test_guards.py      # Guard tests
-│   └── comprehensive_test.py
-├── context/                # Project documentation
-│   └── project_description.txt
+│   └── test_aotbackend.py  # AOTAutograd tests
+├── demo.py                 # Interactive presentation demo
 ├── debug_artifacts/        # Captured artifacts (auto-generated)
-├── PROJECT_PLAN.md         # Development roadmap
-├── ROBUSTNESS_ANALYSIS.md  # Code quality analysis
 └── README.md
 ```
 
 ## Example Output
 
+### HTML Report
+The HTML report includes:
+- Summary statistics (total artifacts, models tested, pass rate)
+- Benchmark comparison table with timing data
+- Constraint violation analysis grouped by model
+- KernelDiff numerical accuracy results
+
 ### Benchmark Summary
 ```
 ================================================================================
-TORCHINDUCTOR DEBUG MODULE - BENCHMARK SUMMARY REPORT
+                    BENCHMARK SUMMARY REPORT
 ================================================================================
-Models Tested: 3
-
-OVERVIEW
+Model                     Eager (ms)   Inductor (ms)  Speedup    KernelDiff
 --------------------------------------------------------------------------------
-Model                     Type         Params       KernelDiff   Warnings
---------------------------------------------------------------------------------
-BERT-base-multilingual    transformer  178.0M       PASS         49
-ResNet-18                 cnn          11.7M        PASS         0
-SSM-Small (Custom)        ssm          27.4M        PASS         24
---------------------------------------------------------------------------------
-
-INFERENCE TIMES (milliseconds, avg ± std)
---------------------------------------------------------------------------------
-Model                     Eager              Mock
---------------------------------------------------------------------------------
-BERT-base-multilingual    45.2 ± 1.2         43.5 ± 0.9
-ResNet-18                 53.9 ± 2.3         56.9 ± 2.2
-SSM-Small (Custom)        46.6 ± 1.3         48.1 ± 1.4
+BERT-base-multilingual    277.8        269.5          1.03x      PASS
+ResNet-18                 41.6         53.8           0.77x      PASS
+SSM-Small (Custom)        21.0         27.7           0.76x      PASS
 --------------------------------------------------------------------------------
 ```
 
 ### Constraint Warnings
 The mock backend identifies potential hardware compatibility issues:
 - **BERT**: 49 warnings for non-contiguous attention tensors
-- **SSM**: 24 warnings for non-contiguous conv1d outputs
+- **SSM**: 24 warnings for non-contiguous state tensors
 - **ResNet**: 0 warnings (CNN-friendly architecture)
 
 ## Running Tests
 
 ```bash
-# Run all KernelDiff tests
-python tests/test_kerneldiff.py
+# Run all tests with pytest
+pytest tests/ -v
 
-# Run BERT integration test
-python tests/test_kerneldiff_bert.py
+# Run specific test files
+pytest tests/test_kerneldiff.py -v
+pytest tests/test_constraints.py -v
+pytest tests/test_adapters.py -v
 
-# Run comprehensive test suite
-python tests/comprehensive_test.py
-
-# Run constraint tests
-python tests/test_constraints.py
+# Run with coverage
+pytest tests/ --cov=debug_module
 ```
 
 ## Requirements
@@ -303,18 +297,14 @@ python tests/test_constraints.py
 - Python 3.10+
 - PyTorch 2.0+ (with torch.compile support)
 - torchvision (for ResNet benchmarks)
-- transformers (for BERT/Mamba benchmarks)
+- transformers (for BERT benchmarks)
 - matplotlib (for visualizations)
 
 ## Known Limitations
 
-1. **CPU Inductor on macOS**: May fail due to C++ header issues. Use Linux or GPU for full Inductor support.
-2. **HuggingFace Mamba**: Has `torch.compile` compatibility issues. We provide a custom SSM implementation.
-3. **Memory tracking**: Current implementation doesn't track peak memory during execution.
-
-## Contributing
-
-See `PROJECT_PLAN.md` for the development roadmap and `ROBUSTNESS_ANALYSIS.md` for code quality notes.
+1. **CPU Inductor on macOS**: May have slower compilation. Use Linux or GPU for best performance.
+2. **Memory tracking**: Current implementation checks per-tensor limits, not peak memory during execution.
+3. **Graph breaks**: Some operations may cause graph breaks that bypass constraint checking.
 
 ## License
 
