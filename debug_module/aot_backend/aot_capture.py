@@ -6,6 +6,7 @@ import os
 import time
 import hashlib
 import json
+import shutil
 
 def save_svg_graph(gm: torch.fx.GraphModule, filename: str):
     """
@@ -162,3 +163,39 @@ def save_artifact(gm: torch.fx.GraphModule):
                  f.write(f"  example_value: {node.meta['example_value']}\n")
     
     print(f"[MockBackend] Saved artifact to {filename}")
+
+def _enable_inductor_debug():
+    os.environ["TORCH_LOGS"] = "+inductor"
+    os.environ["TORCHINDUCTOR_DEBUG"] = "1"
+    os.environ["TORCHINDUCTOR_DUMP_GRAPH"] = "1"
+    os.environ["TORCHINDUCTOR_DUMP_KERNELS"] = "1"
+
+
+def dump_inductor_artifacts():
+    """
+    Moves TorchInductor IR + generated kernels into debug_artifacts/.
+    """
+    src = os.path.join(os.getcwd(), "torchinductor")
+    if not os.path.exists(src):
+        return
+
+    timestamp = int(time.time())
+
+    ir_dst = f"debug_artifacts/inductor_ir/ir_{timestamp}"
+    kernel_dst = f"debug_artifacts/kernels/kernels_{timestamp}"
+
+    os.makedirs(ir_dst, exist_ok=True)
+    os.makedirs(kernel_dst, exist_ok=True)
+
+    for root, _, files in os.walk(src):
+        for f in files:
+            src_path = os.path.join(root, f)
+            if f.endswith((".txt", ".py")):
+                shutil.copy2(src_path, ir_dst)
+            if f.endswith((".triton", ".ttir", ".cpp", ".cu")):
+                shutil.copy2(src_path, kernel_dst)
+
+    shutil.rmtree(src, ignore_errors=True)
+
+    print(f"[MockBackend] Saved Inductor IR to {ir_dst}")
+    print(f"[MockBackend] Saved generated kernels to {kernel_dst}")

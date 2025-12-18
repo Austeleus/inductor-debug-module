@@ -6,7 +6,14 @@ from torch._inductor.compile_fx import compile_fx
 from functorch.compile import make_boxed_func
 
 from ..constraints.registry import DEFAULT_CONSTRAINTS
-from .aot_capture import save_pre_aot_artifact, save_post_aot_forward, save_post_aot_backward, save_graph_statistics
+from .aot_capture import (
+    save_pre_aot_artifact, 
+    save_post_aot_forward, 
+    save_post_aot_backward, 
+    save_graph_statistics,
+    dump_inductor_artifacts,
+    _enable_inductor_debug,
+)
 
 class ConstraintChecker:
     """
@@ -73,7 +80,9 @@ def compile_graph_with_aot(gm: torch.fx.GraphModule, example_inputs, constraints
 
         checker.check_graph(aot_gm)
         
-        return make_boxed_func(compile_fx(aot_gm, aot_inputs))
+        compiled = compile_fx(aot_gm, aot_inputs)
+        dump_inductor_artifacts()
+        return make_boxed_func(compiled)
     
     # Define AOT backward compiler hook
     def bw_compiler(aot_gm, aot_inputs):
@@ -82,7 +91,9 @@ def compile_graph_with_aot(gm: torch.fx.GraphModule, example_inputs, constraints
 
         checker.check_graph(aot_gm)
 
-        return make_boxed_func(compile_fx(aot_gm, aot_inputs))
+        compiled = compile_fx(aot_gm, aot_inputs)
+        dump_inductor_artifacts()
+        return make_boxed_func(compiled)
 
     return aot_module_simplified(
         gm,
