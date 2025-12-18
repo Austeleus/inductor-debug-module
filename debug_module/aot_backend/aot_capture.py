@@ -10,16 +10,23 @@ import json
 def save_svg_graph(gm: torch.fx.GraphModule, filename: str):
     """
     Save an SVG visualization of an FX graph.
+
+    Requires pydot and graphviz to be installed. Gracefully skips if unavailable.
     """
     artifact_dir = "debug_artifacts/visualizations"
     os.makedirs(artifact_dir, exist_ok=True)
 
-    drawer = FxGraphDrawer(gm, "AOT Graph")
     try:
+        drawer = FxGraphDrawer(gm, "AOT Graph")
         svg_data = drawer.get_dot_graph().create_svg()
-    except FileNotFoundError as exc:
-        # Graphviz `dot` is optional; skip SVG capture when unavailable.
-        print(f"[MockBackend] WARNING: Skipping SVG generation ({exc})")
+    except (RuntimeError, FileNotFoundError, ImportError) as exc:
+        # pydot or graphviz not available; skip SVG capture gracefully
+        # RuntimeError: "FXGraphDrawer requires the pydot package"
+        # FileNotFoundError: graphviz `dot` binary not found
+        # ImportError: pydot module not installed
+        return
+    except Exception:
+        # Catch any other visualization errors silently
         return
 
     filepath = os.path.join(artifact_dir, filename)

@@ -72,9 +72,10 @@ def reset_artifacts():
         shutil.rmtree("debug_artifacts")
 
 
-def test_compile_success(backend, model, *inputs):
+def _compile_and_run(backend, model, *inputs):
     """
-    Compiles using torch.compile(model, backend=backend) and checks success.
+    Helper: Compiles using torch.compile(model, backend=backend) and checks success.
+    Note: Named with underscore prefix to avoid pytest auto-discovery.
     """
     try:
         compiled = torch.compile(model, backend=backend)
