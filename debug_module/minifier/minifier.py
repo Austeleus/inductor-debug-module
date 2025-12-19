@@ -2,6 +2,8 @@ import base64
 import os
 import pickle
 import textwrap
+import time
+from collections import defaultdict
 from typing import Any, Dict, Optional, Sequence, Set, Tuple
 
 import torch
@@ -31,18 +33,26 @@ class Minifier:
         self.minified_gm: Optional[torch.fx.GraphModule] = None
         self.failing_node: Optional[torch.fx.Node] = None
         self.failure_message: str = str(error) if error is not None else ""
+        self.metrics: Dict[str, Any] = {}
+        self._constraint_checks = defaultdict(int)
+        self._constraint_failures = defaultdict(int)
+        self._failing_constraint_name: Optional[str] = None
+        self._last_minify_duration_ms: float = 0.0
 
     def minify(self) -> torch.fx.GraphModule:
         """Reduce graph to minimal failing case using a dependency-aware binary search."""
+        start_time = time.perf_counter()
         data_nodes = [n for n in self.gm.graph.nodes if n.op not in ("placeholder", "output")]
         if not data_nodes:
             self.minified_gm = self.gm
+            self._finalize_metrics(start_time)
             return self.gm
 
         failing_idx, failing_node, failure_message = self._binary_search_failure(data_nodes)
         if failing_idx is None or failing_node is None:
             # Fallback to original graph if we cannot isolate a failing prefix.
             self.minified_gm = self.gm
+            self._finalize_metrics(start_time)
             return self.gm
 
         needed_nodes = self._collect_required_nodes({failing_node})
@@ -52,6 +62,7 @@ class Minifier:
         self.failing_node = failing_node
         if failure_message:
             self.failure_message = failure_message
+        self._finalize_metrics(start_time)
         return minified
 
     def generate_repro_script(self, output_path: str) -> str:
@@ -60,8 +71,11 @@ class Minifier:
         serialized_gm = self._serialize_graph_module(gm_to_use)
         example_inputs_literal = self._format_value(self.inputs)
         comment_block, runtime_text = self._format_failure_comment()
+        metrics_literal = self._format_metrics_literal()
 
-        script = self._build_script(serialized_gm, example_inputs_literal, comment_block, runtime_text)
+        script = self._build_script(
+            serialized_gm, example_inputs_literal, comment_block, runtime_text, metrics_literal
+        )
 
         script_dir = os.path.dirname(output_path)
         if script_dir:
@@ -102,7 +116,11 @@ class Minifier:
         constraints = self._constraint_instances()
         for node in nodes[:count]:
             for constraint in constraints:
+                cname = constraint.__class__.__name__
+                self._constraint_checks[cname] += 1
                 if not constraint.check(node):
+                    self._constraint_failures[cname] += 1
+                    self._failing_constraint_name = cname
                     return True, {"node": node, "message": constraint.message(node)}
         return False, None
 
@@ -177,6 +195,63 @@ class Minifier:
         new_graph.output(new_output)
         return torch.fx.GraphModule(self.gm, new_graph, class_name="MinifiedGraph")
 
+    def _graph_stats(self, gm: torch.fx.GraphModule) -> Dict[str, int]:
+        nodes = list(gm.graph.nodes)
+        total = len(nodes)
+        placeholders = sum(1 for n in nodes if n.op == "placeholder")
+        get_attr = sum(1 for n in nodes if n.op == "get_attr")
+        data_nodes = sum(1 for n in nodes if n.op not in ("placeholder", "output", "get_attr"))
+        return {
+            "total_nodes": total,
+            "data_nodes": data_nodes,
+            "placeholders": placeholders,
+            "get_attrs": get_attr,
+        }
+
+    def _finalize_metrics(self, start_time: float):
+        duration_ms = (time.perf_counter() - start_time) * 1000.0
+        self._last_minify_duration_ms = duration_ms
+        gm_to_use = self.minified_gm or self.gm
+        self.metrics = self._collect_metrics(self.gm, gm_to_use, duration_ms)
+
+    def _collect_metrics(
+        self, original: torch.fx.GraphModule, minified: torch.fx.GraphModule, duration_ms: float
+    ) -> Dict[str, Any]:
+        orig_stats = self._graph_stats(original)
+        mini_stats = self._graph_stats(minified)
+        reduction_nodes = orig_stats["data_nodes"] - mini_stats["data_nodes"]
+        ratio = (
+            (mini_stats["data_nodes"] / orig_stats["data_nodes"])
+            if orig_stats["data_nodes"] > 0
+            else 1.0
+        )
+        reduction = {
+            "original_nodes": orig_stats["data_nodes"],
+            "minified_nodes": mini_stats["data_nodes"],
+            "original_total": orig_stats["total_nodes"],
+            "minified_total": mini_stats["total_nodes"],
+            "placeholder_delta": orig_stats["placeholders"] - mini_stats["placeholders"],
+            "node_delta": reduction_nodes,
+            "reduction_ratio": ratio,
+        }
+        coverage = {
+            "checks": dict(self._constraint_checks),
+            "failures": dict(self._constraint_failures),
+            "failing_constraint": self._failing_constraint_name,
+        }
+        return {
+            "runtime_ms": duration_ms,
+            "graph_reduction": reduction,
+            "constraint_coverage": coverage,
+            "failure_message": self.failure_message,
+            "failing_node": getattr(self.failing_node, "name", None),
+        }
+
+    def _ensure_metrics(self):
+        if not self.metrics:
+            gm_to_use = self.minified_gm or self.gm
+            self.metrics = self._collect_metrics(self.gm, gm_to_use, self._last_minify_duration_ms)
+
     # -------------------------------------------------------------------------
     # Script generation helpers
     # -------------------------------------------------------------------------
@@ -199,6 +274,10 @@ class Minifier:
             f"  {suspect}",
         ]
         return "\n".join(comment_lines), "\n".join(runtime_lines)
+
+    def _format_metrics_literal(self) -> str:
+        self._ensure_metrics()
+        return repr(self.metrics)
 
     def _format_value(self, value: Any) -> str:
         if isinstance(value, torch.Tensor):
@@ -229,7 +308,12 @@ class Minifier:
         return repr(value)
 
     def _build_script(
-        self, serialized_gm: str, inputs_literal: str, comment_block: str, runtime_text: str
+        self,
+        serialized_gm: str,
+        inputs_literal: str,
+        comment_block: str,
+        runtime_text: str,
+        metrics_literal: str,
     ) -> str:
         inputs_section = textwrap.dedent(
             f"""\
@@ -255,6 +339,8 @@ from debug_module.backend.compiler import mock_compile
 SERIALIZED_GRAPH = \"\"\"{serialized_gm}\"\"\" 
 
 {comment_block}
+
+METRICS = {metrics_literal}
 
 
 def load_module():
@@ -283,6 +369,10 @@ def run_repro():
 
     print(\"\"\"{runtime_text}\"\"\")
     mock_compile(module, tensor_inputs)
+
+
+def get_metrics():
+    return METRICS
 
 
 if __name__ == "__main__":

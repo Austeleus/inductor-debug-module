@@ -196,6 +196,9 @@ class DemoWandbLogger:
         html = self._wandb.Html(f"<pre>{text}</pre>")
         self._run.log({key: html})
 
+    def log_metrics(self, metrics: Dict[str, object]):
+        self._run.log(metrics)
+
     def finish(self):
         self._run.finish()
 
@@ -211,6 +214,11 @@ def wandb_log_stage(stage: str, status: str, extra: Optional[Dict[str, object]] 
 def wandb_log_text(key: str, text: str):
     if DEMO_WANDB_LOGGER:
         DEMO_WANDB_LOGGER.log_text(key, text)
+
+
+def wandb_log_metrics(metrics: Dict[str, object]):
+    if DEMO_WANDB_LOGGER and metrics:
+        DEMO_WANDB_LOGGER.log_metrics(metrics)
 
 
 def print_header(text):
@@ -883,6 +891,35 @@ def demo_minifier():
                 gm.graph.print_tabular()
                 graph_readable = gm.print_readable(print_output=False)
                 wandb_log_text("minifier/minified_graph", graph_readable)
+                metrics = None
+                metrics_fn = getattr(repro_module, "get_metrics", None)
+                if callable(metrics_fn):
+                    metrics = metrics_fn()
+                    graph_reduction = metrics.get("graph_reduction", {})
+                    runtime_ms = metrics.get("runtime_ms", 0.0)
+                    coverage = metrics.get("constraint_coverage", {})
+                    failing_constraint = coverage.get("failing_constraint") or "<unknown>"
+                    orig_nodes = graph_reduction.get("original_nodes")
+                    min_nodes = graph_reduction.get("minified_nodes")
+                    ratio = graph_reduction.get("reduction_ratio")
+                    if orig_nodes is not None and min_nodes is not None:
+                        ratio_text = f"{ratio:.2f}" if isinstance(ratio, (int, float)) else "n/a"
+                        print_info(
+                            f"Minifier runtime: {runtime_ms:.2f} ms | nodes {orig_nodes} -> {min_nodes} "
+                            f"(ratio={ratio_text}) | failing constraint: {failing_constraint}"
+                        )
+                    wandb_payload: Dict[str, object] = {
+                        "minifier/runtime_ms": runtime_ms,
+                        "minifier/original_nodes": orig_nodes or 0,
+                        "minifier/minified_nodes": min_nodes or 0,
+                        "minifier/node_ratio": ratio or 0.0,
+                        "minifier/failing_constraint": failing_constraint,
+                    }
+                    for name, count in coverage.get("checks", {}).items():
+                        wandb_payload[f"minifier/constraints/checks/{name}"] = count
+                    for name, count in coverage.get("failures", {}).items():
+                        wandb_payload[f"minifier/constraints/failures/{name}"] = count
+                    wandb_log_metrics(wandb_payload)
             else:
                 print_info("Repro script does not expose load_module(); skipping graph view.")
         except Exception as exc:
