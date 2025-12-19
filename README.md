@@ -26,8 +26,9 @@ End-to-end compilation backend that lowers models through AOTAutograd and TorchI
 
 - **Pre-AOT FX capture**: Graph before AOTAutograd transformation
 - **Forward / Backward graphs**: Separate graphs for training workloads
-- **Constraint checking**: Applied independently to forward and backward graphs similar to the mock backend simulator
-- **TorchInductor lowering**: Generates real Triton and C++ kernels
+- **Constraint checking**: Applied independently to forward and backward graphs
+- **Pre-AOT repro generation**: Minimal reproduction scripts are generated only from pre-AOT FX graphs
+- **TorchInductor lowering**: Generates intermediate representations and Triton/C++ kernels
 - **IR & kernel dumps**: Saves lowered IR and generated kernel code
 
 ### 3. KernelDiff Harness

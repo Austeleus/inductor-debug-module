@@ -550,8 +550,12 @@ def demo_aot_backend():
     )
 
     print_code("""from debug_module.aot_backend.mock import aot_mock_backend
+from debug_module.constraints.registry import DtypeConstraint, ShapeConstraint
 
-backend = aot_mock_backend(strict=True)
+backend = aot_mock_backend(
+    strict=True,
+    constraints=[DtypeConstraint({torch.float32}), ShapeConstraint(alignment=8)],
+)
 opt_model = torch.compile(model, backend=backend)
 """)
 
@@ -620,6 +624,7 @@ opt_model = torch.compile(model, backend=backend)
         ("Graph statistics", "debug_artifacts/statistics"),
         ("Lowered IR (Inductor)", "debug_artifacts/inductor_ir"),
         ("Generated kernels", "debug_artifacts/inductor_kernels"),
+        ("Repro scripts (pre-AOT only)", "debug_artifacts/repros"),
     ]
 
     for label, path in artifact_paths:
@@ -638,6 +643,7 @@ opt_model = torch.compile(model, backend=backend)
   ✓ Validate constraints after graph transformation
   ✓ Capture TorchInductor lowered IR
   ✓ Archive generated Triton / C++ kernels
+  ✓ Generate minimal repros from pre-AOT FX graphs
   ✓ Debug failures that only appear post-lowering
 """)
 
