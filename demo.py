@@ -23,6 +23,118 @@ os.environ['TOKENIZERS_PARALLELISM'] = 'false'  # Suppress HuggingFace warning
 import torch
 import torch.nn as nn
 
+import numpy as np
+import subprocess
+
+def _choose_model_preset() -> str:
+    print(f"""{Colors.BOLD}Select a model preset:{Colors.END}
+
+  {Colors.CYAN}1){Colors.END} Tiny random BERT (fastest, not meaningful text)
+     hf-internal-testing/tiny-random-BertModel
+
+  {Colors.CYAN}2){Colors.END} Tiny BERT (fast, “real BERT-ish”)
+     prajjwal1/bert-tiny
+
+  {Colors.CYAN}3){Colors.END} Google 2-layer mini BERT (very small)
+     google/bert_uncased_L-2_H-128_A-2
+
+  {Colors.CYAN}4){Colors.END} Tiny DistilBERT (fast)
+     sshleifer/tiny-distilbert-base-cased
+
+  {Colors.CYAN}5){Colors.END} Enter custom HF model id
+""")
+
+    choice = input(f"{Colors.YELLOW}Enter 1-5:{Colors.END} ").strip()
+
+    if choice == "1":
+        return "hf-internal-testing/tiny-random-BertModel"
+    if choice == "2":
+        return "prajjwal1/bert-tiny"
+    if choice == "3":
+        return "google/bert_uncased_L-2_H-128_A-2"
+    if choice == "4":
+        return "sshleifer/tiny-distilbert-base-cased"
+    # default: custom
+    return _ask_str("HF model id", "prajjwal1/bert-tiny")
+
+
+def _ask_str(prompt: str, default: str) -> str:
+    s = input(f"{Colors.YELLOW}{prompt}{Colors.END} [{default}]: ").strip()
+    return s if s else default
+
+def _ask_int(prompt: str, default: int) -> int:
+    s = input(f"{Colors.YELLOW}{prompt}{Colors.END} [{default}]: ").strip()
+    return int(s) if s else default
+
+def _ask_float(prompt: str, default: float) -> float:
+    s = input(f"{Colors.YELLOW}{prompt}{Colors.END} [{default}]: ").strip()
+    return float(s) if s else default
+
+def _ask_bool(prompt: str, default: bool) -> bool:
+    d = "y" if default else "n"
+    s = input(f"{Colors.YELLOW}{prompt}{Colors.END} [y/n, default {d}]: ").strip().lower()
+    if not s:
+        return default
+    return s in {"y", "yes", "1", "true", "t"}
+
+
+def _to_2d(arr: np.ndarray) -> np.ndarray:
+    """Make a tensor/ndarray viewable as a 2D heatmap."""
+    if arr.ndim == 0:
+        return arr.reshape(1, 1)
+    if arr.ndim == 1:
+        return arr.reshape(1, -1)
+    if arr.ndim == 2:
+        return arr
+    # Flatten higher dims into rows
+    return arr.reshape(arr.shape[0], -1)
+
+def show_or_save_heatmap(
+    data: np.ndarray,
+    title: str,
+    out_path: str,
+    prefer_show: bool = True,
+):
+    """
+    Show heatmap interactively if possible; otherwise save to PNG and (on macOS) open it.
+    """
+    import matplotlib
+    import matplotlib.pyplot as plt
+
+    data2d = _to_2d(data)
+
+    # Heuristic for headless: no DISPLAY (common on servers/CI)
+    headless = (os.environ.get("DISPLAY") is None) and (sys.platform != "win32")
+
+    if headless:
+        matplotlib.use("Agg")
+
+    fig = plt.figure(figsize=(8, 4))
+    plt.imshow(data2d, aspect="auto")
+    plt.colorbar(label="error")
+    plt.title(title)
+    plt.xlabel("columns")
+    plt.ylabel("rows")
+
+    if prefer_show and not headless:
+        plt.show()  # blocks until window closed
+        plt.close(fig)
+        return
+
+    # Save and optionally open
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    fig.savefig(out_path, dpi=180, bbox_inches="tight")
+    plt.close(fig)
+
+    print_info(f"Saved heatmap: {out_path}")
+
+    # Auto-open on macOS for demo convenience
+    if sys.platform == "darwin":
+        try:
+            subprocess.run(["open", out_path], check=False)
+        except Exception:
+            pass
+
 try:
     import wandb  # type: ignore
 except ImportError:  # pragma: no cover - optional dependency
@@ -648,6 +760,29 @@ These are mathematically equivalent but can produce different floating-point res
     print(f"{Colors.BOLD}Difference:{Colors.END}      {(bad_compiled_out - eager_out)[0].tolist()}\n")
 
     result_bad = compare_tensors(eager_out, bad_compiled_out, name="bad_output")
+    
+        # ===== NEW: Heatmaps for demo =====
+    abs_err = (bad_compiled_out - eager_out).abs().detach().cpu().numpy()
+
+    # Optional relative error heatmap (avoid div-by-zero)
+    denom = eager_out.abs().detach().cpu().numpy()
+    rel_err = abs_err / (denom + 1e-12)
+
+    ts = int(time.time())
+    show_or_save_heatmap(
+        abs_err,
+        title="KernelDiff Heatmap: Absolute Error",
+        out_path=f"debug_artifacts/kerneldiff_heatmaps/abs_err_{ts}.png",
+        prefer_show=True,   # set False if you never want popups
+    )
+
+    show_or_save_heatmap(
+        rel_err,
+        title="KernelDiff Heatmap: Relative Error",
+        out_path=f"debug_artifacts/kerneldiff_heatmaps/rel_err_{ts}.png",
+        prefer_show=True,
+    )
+
 
     print(f"{Colors.BOLD}KernelDiff Comparison:{Colors.END}")
     print(f"  ┌─────────────────────────────────────┐")
@@ -959,9 +1094,182 @@ def demo_summary():
 {Colors.BOLD}Thank you!{Colors.END}
 """)
 
+def demo_bert_quickrun():
+    """End-to-end quick run on (m)BERT with interactive knobs + KernelDiff heatmaps."""
+    print_header("BERT Quick Run (Interactive)")
+
+    try:
+        from transformers import AutoTokenizer, AutoModel
+    except ImportError:
+        print(f"{Colors.RED}transformers not installed. Run: pip install transformers{Colors.END}")
+        return
+
+    from debug_module.backend.mock import mock_backend
+    from debug_module.aot_backend.mock import aot_mock_backend
+    from debug_module.diff import compare_tensors, ComparisonConfig
+
+    # --------- Prompt knobs ---------
+    model_name = _choose_model_preset()
+    print_info(f"Using model: {model_name}")
+
+    device = _ask_str("Device (cpu or cuda)", "cpu")
+    batch_size = _ask_int("Batch size", 2)
+    max_length = _ask_int("Tokenizer max_length", 32)
+    pad_to_max = _ask_bool("Pad to max_length (vs dynamic padding)?", True)
+
+    # Mock backend knobs (env flags)
+    mock_strict = _ask_bool("MOCK_STRICT (fail on constraint violation)?", False)
+    mock_alignment = _ask_int("MOCK_ALIGNMENT (all dims divisible by N)", 1)
+
+    use_max_memory = _ask_bool("Set MOCK_MAX_MEMORY?", False)
+    mock_max_memory = _ask_int("MOCK_MAX_MEMORY (bytes)", 1024 * 1024) if use_max_memory else None
+
+    # KernelDiff knobs
+    atol = _ask_float("KernelDiff atol", 1e-5)
+    rtol = _ask_float("KernelDiff rtol", 1e-4)
+
+    # Heatmap knobs
+    prefer_show = _ask_bool("Show heatmaps in popup window? (otherwise save only)", True)
+
+    # Optional: force a failure to generate repro/minifier artifacts
+    trigger_failure = _ask_bool("Intentionally trigger a constraint failure for repro/minifier?", False)
+    failure_alignment = _ask_int("Failure alignment (if triggering)", 8) if trigger_failure else None
+    failure_max_length = _ask_int("Failure max_length (misaligned length)", 63) if trigger_failure else None
+
+    # --------- Apply env flags ---------
+    os.environ["MOCK_STRICT"] = "1" if mock_strict else "0"
+    os.environ["MOCK_ALIGNMENT"] = str(mock_alignment)
+    if mock_max_memory is not None:
+        os.environ["MOCK_MAX_MEMORY"] = str(mock_max_memory)
+    else:
+        os.environ.pop("MOCK_MAX_MEMORY", None)
+
+    # --------- Load model/tokenizer ---------
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModel.from_pretrained(model_name).eval().to(device)
+
+    # Build input batch
+    texts = [f"KernelDiff demo sentence {i}." for i in range(batch_size)]
+    tok_kwargs = dict(return_tensors="pt", truncation=True, max_length=max_length)
+    if pad_to_max:
+        tok_kwargs.update({"padding": "max_length"})
+    else:
+        tok_kwargs.update({"padding": True})
+
+    inputs = tokenizer(texts, **tok_kwargs)
+    inputs = {k: v.to(device) for k, v in inputs.items()}
+
+    # --------- 1) FX graph capture (mock backend) ---------
+    torch._dynamo.reset()
+    opt_model_fx = torch.compile(model, backend=mock_backend)
+    with torch.no_grad():
+        out_fx = opt_model_fx(**inputs)
+    print_success(f"FX compile ok | last_hidden_state: {tuple(out_fx.last_hidden_state.shape)}")
+
+    # --------- 2) AOT compile + backward (small scalar backward) ---------
+    # (This may be slow on CPU for full-size models; still correct for demos.)
+    torch._dynamo.reset()
+    backend_aot = aot_mock_backend(strict=mock_strict)
+    opt_model_aot = torch.compile(model, backend=backend_aot, mode="max-autotune")
+
+    for p in model.parameters():
+        p.requires_grad_(True)
+
+    out_aot = opt_model_aot(**inputs)
+    loss = out_aot.last_hidden_state.sum()
+    loss.backward()
+    print_success("AOT compile ok + backward ok")
+
+    # --------- 3) KernelDiff: eager vs compiled ---------
+    cfg = ComparisonConfig(atol=atol, rtol=rtol)
+
+    torch._dynamo.reset()
+    with torch.no_grad():
+        eager_out = model(**inputs).last_hidden_state.detach()
+
+    torch._dynamo.reset()
+    opt_model_kd = torch.compile(model, backend=mock_backend)
+    with torch.no_grad():
+        compiled_out = opt_model_kd(**inputs).last_hidden_state.detach()
+
+    kd = compare_tensors(eager_out, compiled_out, name="bert_last_hidden_state", config=cfg)
+    status = f"{Colors.GREEN}PASS{Colors.END}" if kd.passed else f"{Colors.RED}FAIL{Colors.END}"
+    print(f"{Colors.BOLD}KernelDiff:{Colors.END} {status}")
+    print(f"  max_abs={kd.max_absolute_error:.2e} | mean_abs={kd.mean_absolute_error:.2e} | "
+          f"max_rel={kd.max_relative_error:.2e} | rmse={kd.rmse:.2e} | mismatched={kd.mismatched_elements}")
+
+    # --------- 4) Heatmaps (abs + rel) ---------
+    abs_err = (compiled_out - eager_out).abs().detach().cpu().numpy()
+    denom = eager_out.abs().detach().cpu().numpy()
+    rel_err = abs_err / (denom + 1e-12)
+
+    ts = int(time.time())
+    show_or_save_heatmap(
+        abs_err,
+        title=f"{model_name} KernelDiff Heatmap: Absolute Error (last_hidden_state)",
+        out_path=f"debug_artifacts/kerneldiff_heatmaps/{model_name.replace('/', '_')}_abs_{ts}.png",
+        prefer_show=prefer_show,
+    )
+    show_or_save_heatmap(
+        rel_err,
+        title=f"{model_name} KernelDiff Heatmap: Relative Error (last_hidden_state)",
+        out_path=f"debug_artifacts/kerneldiff_heatmaps/{model_name.replace('/', '_')}_rel_{ts}.png",
+        prefer_show=prefer_show,
+    )
+
+    # --------- 5) Optional: trigger failure to produce repro/minifier artifacts ---------
+    if trigger_failure:
+        print_subheader("Triggering intentional failure for repro/minifier")
+
+        # Make a misaligned sequence length (commonly triggers shape constraints)
+        fail_inputs = tokenizer(
+            ["Intentional failure to generate a repro script."] * batch_size,
+            return_tensors="pt",
+            padding="max_length",
+            truncation=True,
+            max_length=failure_max_length,
+        )
+        fail_inputs = {k: v.to(device) for k, v in fail_inputs.items()}
+
+        os.environ["MOCK_STRICT"] = "1"
+        os.environ["MOCK_ALIGNMENT"] = str(failure_alignment)
+        os.environ.pop("MOCK_MAX_MEMORY", None)
+
+        try:
+            torch._dynamo.reset()
+            bad_opt = torch.compile(model, backend=mock_backend)
+            with torch.no_grad():
+                _ = bad_opt(**fail_inputs)
+
+            # Fallback: guaranteed fail via memory cap if alignment didn’t trip
+            print_info("Alignment didn’t fail; forcing memory failure via MOCK_MAX_MEMORY=1024")
+            os.environ["MOCK_MAX_MEMORY"] = "1024"
+            torch._dynamo.reset()
+            bad_opt = torch.compile(model, backend=mock_backend)
+            with torch.no_grad():
+                _ = bad_opt(**fail_inputs)
+
+        except Exception as e:
+            print(f"{Colors.RED}Expected failure triggered{Colors.END}")
+            print_info("Check debug_artifacts/repros (or your configured repro directory).")
+            print_info(f"Error: {str(e)[:200]}{'...' if len(str(e)) > 200 else ''}")
+
+        finally:
+            # Restore chosen settings
+            os.environ["MOCK_STRICT"] = "1" if mock_strict else "0"
+            os.environ["MOCK_ALIGNMENT"] = str(mock_alignment)
+            if mock_max_memory is not None:
+                os.environ["MOCK_MAX_MEMORY"] = str(mock_max_memory)
+            else:
+                os.environ.pop("MOCK_MAX_MEMORY", None)
+            torch._dynamo.reset()
+
+    print_success("BERT quick run complete")
+
+
 
 def main():
-    """Run the full demo."""
+    """Run the demo (full tutorial or BERT quick run)."""
     print("\n" * 2)
 
     global DEMO_WANDB_LOGGER
@@ -969,6 +1277,30 @@ def main():
     wandb_log_stage("demo", "started")
 
     try:
+        # ===== NEW: Mode selection =====
+        print_header("Select Demo Mode")
+
+        print(f"""{Colors.BOLD}Choose how you'd like to run the demo:{Colors.END}
+
+  {Colors.CYAN}1){Colors.END} Full tutorial (all sections, step-by-step)
+  {Colors.CYAN}2){Colors.END} BERT quick demo (end-to-end, minimal explanation)
+
+""")
+
+        choice = input(f"{Colors.YELLOW}Enter 1 or 2: {Colors.END}").strip()
+
+        # Normalize input
+        if choice not in {"1", "2"}:
+            print(f"{Colors.RED}Invalid choice. Defaulting to full tutorial.{Colors.END}")
+            choice = "1"
+
+        # ===== BERT QUICK RUN ONLY =====
+        if choice == "2":
+            demo_bert_quickrun()
+            wait_for_enter("Press Enter to exit...")
+            return
+
+        # ===== FULL TUTORIAL =====
         demo_intro()
         wandb_log_stage("intro", "completed")
         wait_for_enter("Press Enter to start the demo...")
@@ -1005,6 +1337,12 @@ def main():
         wandb_log_stage("cli", "completed")
         wait_for_enter()
 
+        demo_bert_quickrun()
+        wait_for_enter()
+
+        demo_bert_quickrun()
+        wait_for_enter()
+
         demo_summary()
         wandb_log_stage("summary", "completed")
         wandb_log_stage("demo", "completed")
@@ -1016,6 +1354,8 @@ def main():
     finally:
         if DEMO_WANDB_LOGGER:
             DEMO_WANDB_LOGGER.finish()
+
+
 
 
 if __name__ == "__main__":
