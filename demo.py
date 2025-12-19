@@ -9,10 +9,12 @@ Run with: python demo.py
 Press Enter to advance through each section.
 """
 
+import importlib.util
 import os
 import sys
 import time
 import warnings
+from typing import Dict, Optional
 
 # Suppress some torch warnings for cleaner demo output
 warnings.filterwarnings('ignore', category=UserWarning, module='torch')
@@ -20,6 +22,11 @@ os.environ['TOKENIZERS_PARALLELISM'] = 'false'  # Suppress HuggingFace warning
 
 import torch
 import torch.nn as nn
+
+try:
+    import wandb  # type: ignore
+except ImportError:  # pragma: no cover - optional dependency
+    wandb = None
 
 # Add project to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -35,6 +42,63 @@ class Colors:
     BOLD = '\033[1m'
     UNDERLINE = '\033[4m'
     END = '\033[0m'
+
+
+class DemoWandbLogger:
+    """Lightweight WandB helper for the interactive demo."""
+
+    def __init__(self, run, module):
+        self._run = run
+        self._wandb = module
+
+    @staticmethod
+    def _enabled() -> bool:
+        flag = os.environ.get("DEMO_WANDB", "")
+        if not flag:
+            return False
+        return flag.lower() not in ("0", "false", "no")
+
+    @classmethod
+    def create(cls):
+        if not cls._enabled():
+            return None
+        if wandb is None:
+            print("[Demo] wandb is not installed; skipping Weights & Biases logging.")
+            return None
+        run = wandb.init(
+            project=os.environ.get("WANDB_PROJECT", "inductor-debug-demo"),
+            name=os.environ.get("WANDB_RUN_NAME"),
+            tags=["demo", "inductor-debug"],
+            config={"script": "demo.py"},
+        )
+        print("[Demo] Logging run to Weights & Biases.")
+        return cls(run, wandb)
+
+    def log_stage(self, stage: str, status: str, extra: Optional[Dict[str, object]] = None):
+        payload = {"demo_stage": stage, "demo_status": status}
+        if extra:
+            payload.update(extra)
+        self._run.log(payload)
+
+    def log_text(self, key: str, text: str):
+        html = self._wandb.Html(f"<pre>{text}</pre>")
+        self._run.log({key: html})
+
+    def finish(self):
+        self._run.finish()
+
+
+DEMO_WANDB_LOGGER: Optional[DemoWandbLogger] = None
+
+
+def wandb_log_stage(stage: str, status: str, extra: Optional[Dict[str, object]] = None):
+    if DEMO_WANDB_LOGGER:
+        DEMO_WANDB_LOGGER.log_stage(stage, status, extra)
+
+
+def wandb_log_text(key: str, text: str):
+    if DEMO_WANDB_LOGGER:
+        DEMO_WANDB_LOGGER.log_text(key, text)
 
 
 def print_header(text):
@@ -660,14 +724,34 @@ def demo_minifier():
         latest = repros[-1]
         print(f"\n{Colors.CYAN}Sample repro script ({os.path.basename(latest)}):{Colors.END}")
         print("-" * 50)
+        preview = ""
         with open(latest) as f:
             content = f.read()
             lines = content.split('\n')[:40]
+            preview = "\n".join(lines)
             for line in lines:
                 print(line)
             if len(content.split('\n')) > 40:
                 print(f"\n... ({len(content.split(chr(10))) - 40} more lines)")
+        wandb_log_text("minifier/repro_preview", preview)
         print("-" * 50)
+        print_info("Loading minified graph from the latest repro script...")
+        try:
+            spec = importlib.util.spec_from_file_location("demo_minifier_repro", latest)
+            if spec is None or spec.loader is None:
+                raise RuntimeError("Unable to resolve module spec for repro script.")
+            repro_module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(repro_module)
+            if hasattr(repro_module, "load_module"):
+                gm = repro_module.load_module()
+                print(f"\n{Colors.CYAN}Reconstructed FX graph:{Colors.END}")
+                gm.graph.print_tabular()
+                graph_readable = gm.print_readable(print_output=False)
+                wandb_log_text("minifier/minified_graph", graph_readable)
+            else:
+                print_info("Repro script does not expose load_module(); skipping graph view.")
+        except Exception as exc:
+            print(f"{Colors.RED}! Failed to load repro graph: {exc}{Colors.END}")
     else:
         print_info("No repro scripts generated yet. They are created when constraint violations occur.")
 
@@ -880,39 +964,58 @@ def main():
     """Run the full demo."""
     print("\n" * 2)
 
+    global DEMO_WANDB_LOGGER
+    DEMO_WANDB_LOGGER = DemoWandbLogger.create()
+    wandb_log_stage("demo", "started")
+
     try:
         demo_intro()
+        wandb_log_stage("intro", "completed")
         wait_for_enter("Press Enter to start the demo...")
 
         demo_constraint_checking()
+        wandb_log_stage("constraint_checking", "completed")
         wait_for_enter()
 
         demo_fx_graph_capture()
+        wandb_log_stage("fx_graph_capture", "completed")
         wait_for_enter()
 
         demo_aot_backend()
+        wandb_log_stage("aot_backend", "completed")
         wait_for_enter()
 
         demo_kerneldiff()
+        wandb_log_stage("kerneldiff", "completed")
         wait_for_enter()
 
         demo_minifier()
+        wandb_log_stage("minifier", "completed")
         wait_for_enter()
 
         demo_benchmarks()
+        wandb_log_stage("benchmarks", "completed")
         wait_for_enter()
 
         demo_html_report()
+        wandb_log_stage("html_report", "completed")
         wait_for_enter()
 
         demo_cli()
+        wandb_log_stage("cli", "completed")
         wait_for_enter()
 
         demo_summary()
+        wandb_log_stage("summary", "completed")
+        wandb_log_stage("demo", "completed")
 
     except KeyboardInterrupt:
+        wandb_log_stage("demo", "interrupted")
         print(f"\n\n{Colors.YELLOW}Demo interrupted.{Colors.END}\n")
         sys.exit(0)
+    finally:
+        if DEMO_WANDB_LOGGER:
+            DEMO_WANDB_LOGGER.finish()
 
 
 if __name__ == "__main__":
