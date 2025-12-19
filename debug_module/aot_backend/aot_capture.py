@@ -246,7 +246,7 @@ def dump_inductor_artifacts(tag: str = "inductor"):
     candidates.sort(key=lambda p: os.path.getmtime(p), reverse=True)
 
     if not candidates:
-        print("[MockBackend] No Inductor debug directories found (nothing to copy)")
+        # print("[MockBackend] No Inductor debug directories found (nothing to copy)")
         return
 
     copied_ir = 0
