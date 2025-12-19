@@ -1,14 +1,14 @@
 # TorchInductor Debug Module
 
-A comprehensive debugging toolkit for developing custom accelerators with PyTorch's TorchInductor compiler. This project provides tools to simulate hardware constraints, compare outputs across backends, generate detailed reports, and benchmark model performance.
+A comprehensive debugging toolkit for developing custom accelerators with PyTorch’s TorchInductor compiler, supporting both eager graph validation and full AOTAutograd + kernel-level compilation. This project provides tools to simulate hardware constraints, compare outputs across backends, generate detailed reports, and benchmark model performance.
 
 **Sponsored by:** IBM Research
 **Course:** HPML (High Performance Machine Learning)
 
 ## Features
 
-### 1. Mock Backend Simulator
-Simulates a custom hardware accelerator with configurable constraints.
+### 1. Mock Backend Simulator (Eager Validation Mode)
+Validates FX graphs before lowering, returning eager execution while providing fast failure, repro generation, and graph inspection.
 
 **Constraints:**
 - **Shape**: Enforce dimension alignment (e.g., multiples of 8, 16, 32)
@@ -21,7 +21,16 @@ Simulates a custom hardware accelerator with configurable constraints.
 - **Strict Mode** (`MOCK_STRICT=1`): Hard failure on constraint violation with reproduction script generation
 - **Warning Mode** (`MOCK_STRICT=0`): Log warnings but allow execution
 
-### 2. KernelDiff Harness
+### 2. AOTAutograd + TorchInductor Backend
+End-to-end compilation backend that lowers models through AOTAutograd and TorchInductor to generate real kernels.
+
+- **Pre-AOT FX capture**: Graph before AOTAutograd transformation
+- **Forward / Backward graphs**: Separate graphs for training workloads
+- **Constraint checking**: Applied independently to forward and backward graphs similar to the mock backend simulator
+- **TorchInductor lowering**: Generates real Triton and C++ kernels
+- **IR & kernel dumps**: Saves lowered IR and generated kernel code
+
+### 3. KernelDiff Harness
 Compare model outputs between reference (eager/Inductor) and mock backend to detect numerical discrepancies.
 
 - **Comprehensive Metrics**: Max/mean absolute error, relative error, RMSE, mismatch percentage
@@ -30,7 +39,7 @@ Compare model outputs between reference (eager/Inductor) and mock backend to det
 - **Visualization**: Error heatmaps, comparison summary plots
 - **Complex Output Handling**: Supports nested dicts, tuples, HuggingFace outputs
 
-### 3. HTML Report Generator
+### 4. HTML Report Generator
 Generate visual HTML reports summarizing debug artifacts and benchmark results.
 
 - **Summary Statistics**: Total artifacts, models tested, pass rates
@@ -38,21 +47,21 @@ Generate visual HTML reports summarizing debug artifacts and benchmark results.
 - **Constraint Analysis**: Grouped warnings by model with categorization
 - **KernelDiff Results**: Numerical accuracy status for each model
 
-### 4. Backend Adapter Interface
+### 5. Backend Adapter Interface
 Abstract interface for integrating custom accelerator backends.
 
 - **AcceleratorAdapter**: Base class for custom backends
 - **AcceleratorCapabilities**: Define supported dtypes, ops, memory limits
 - **IntegratedMockAdapter**: Reference implementation bridging to existing mock backend
 
-### 5. Guard Inspector
+### 6. Guard Inspector
 Analyzes specialization guards that cause graph breaks or recompilations.
 
 - **Graph Analysis**: Count graphs and graph breaks
 - **Break Reasons**: Identify why compilation failed
 - **Guard Details**: Per-graph guard information
 
-### 6. Benchmarking Suite
+### 7. Benchmarking Suite
 Benchmark models across multiple backends with detailed metrics.
 
 **Supported Models:**
@@ -67,14 +76,14 @@ Benchmark models across multiple backends with detailed metrics.
 - Constraint violations
 - KernelDiff pass/fail status
 
-### 7. Minifier
+### 8. Minifier
 Automatically generates minimal reproduction scripts when constraint violations occur.
 
 - **Serialized Graphs**: Captures the exact FX graph state
 - **Example Inputs**: Includes the inputs that triggered the failure
 - **Standalone Scripts**: Can be shared for debugging without the full codebase
 
-### 8. CLI Tool
+### 9. CLI Tool
 Command-line interface for managing the debug workflow.
 
 ```bash
@@ -136,6 +145,29 @@ os.environ['MOCK_ALIGNMENT'] = '8'   # Require 8-byte alignment
 model = YourModel()
 compiled_model = torch.compile(model, backend=mock_backend)
 output = compiled_model(input_tensor)
+```
+
+### Using the AOTAutograd + TorchInductor Backend
+
+```python
+import torch
+from debug_module.aot_backend.mock import aot_mock_backend
+from debug_module.constraints import ShapeConstraint, DtypeConstraint
+
+model = YourTrainingModel()
+
+backend = aot_mock_backend(
+    strict=True,  # Fail on constraint violations
+    constraints=[
+        ShapeConstraint(alignment=8),
+        DtypeConstraint(allowed_dtypes={"float32", "float16"}),
+    ],
+)
+
+compiled = torch.compile(model, backend=backend)
+
+out = compiled(x, y)
+out.backward()
 ```
 
 ### Running KernelDiff Comparison
@@ -209,6 +241,7 @@ inductor-debug-module/
 │   │   └── integrated_adapter.py  # Bridges to existing mock backend
 │   ├── aot_backend/        # AOTAutograd integration
 │   │   ├── aot_capture.py  # Artifact capture + SVG + statistics
+│   │   ├── compiler.py     # Core AOT compilation logic
 │   │   └── mock.py         # AOTAutograd backend
 │   ├── backend/            # Mock backend implementation
 │   │   ├── compiler.py     # Core compilation logic

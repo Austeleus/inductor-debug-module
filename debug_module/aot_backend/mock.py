@@ -7,10 +7,10 @@ def aot_mock_backend(strict=None, constraints=None):
     constraint overrides and strict/warning mode.
 
     Usage:
-        backend = aot_mock_backend(strict=True)
+        backend = mock_backend(strict=True)
         torch.compile(model, backend=backend)
 
-        backend = aot_mock_backend(
+        backend = mock_backend(
             strict=False,
             constraints=[ShapeConstraint(16), DtypeConstraint({...})],
         )
