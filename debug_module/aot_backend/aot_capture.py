@@ -8,6 +8,7 @@ import hashlib
 import json
 import shutil
 import glob
+from ..minifier.minifier import Minifier
 
 def save_svg_graph(gm: torch.fx.GraphModule, filename: str):
     """
@@ -26,6 +27,7 @@ def save_svg_graph(gm: torch.fx.GraphModule, filename: str):
         # RuntimeError: "FXGraphDrawer requires the pydot package"
         # FileNotFoundError: graphviz `dot` binary not found
         # ImportError: pydot module not installed
+        print(f"[Viz] Skipped SVG generation: {exc}")
         return
     except Exception:
         # Catch any other visualization errors silently
@@ -35,7 +37,7 @@ def save_svg_graph(gm: torch.fx.GraphModule, filename: str):
     with open(filepath, "wb") as f:
         f.write(svg_data)
 
-    print(f"[MockBackend] Saved SVG visualization: {filepath}")
+    print(f"[AOT MockBackend] Saved SVG visualization: {filepath}")
     
 def save_pre_aot_artifact(gm: torch.fx.GraphModule):
     """
@@ -51,7 +53,7 @@ def save_pre_aot_artifact(gm: torch.fx.GraphModule):
     with open(filename, "w") as f:
         f.write(gm.print_readable(print_output=False))
 
-    print(f"[MockBackend] Saved pre-AOT FX graph: {filename}")
+    print(f"[AOT MockBackend] Saved pre-AOT FX graph: {filename}")
 
 
 def save_post_aot_forward(aot_gm: torch.fx.GraphModule):
@@ -68,7 +70,7 @@ def save_post_aot_forward(aot_gm: torch.fx.GraphModule):
     with open(filename, "w") as f:
         f.write(aot_gm.print_readable(print_output=False))
 
-    print(f"[MockBackend] Saved AOT Forward graph: {filename}")
+    print(f"[AOT MockBackend] Saved AOT Forward graph: {filename}")
 
 def save_post_aot_backward(aot_gm: torch.fx.GraphModule):
     """
@@ -84,7 +86,7 @@ def save_post_aot_backward(aot_gm: torch.fx.GraphModule):
     with open(filename, "w") as f:
         f.write(aot_gm.print_readable(print_output=False))
 
-    print(f"[MockBackend] Saved AOT Backward graph: {filename}")
+    print(f"[AOT MockBackend] Saved AOT Backward graph: {filename}")
 
 def save_graph_statistics(gm: torch.fx.GraphModule, direction: str):
     """
@@ -133,7 +135,7 @@ def save_graph_statistics(gm: torch.fx.GraphModule, direction: str):
     with open(filename, "w") as f:
         json.dump(stats, f, indent=2)
 
-    print(f"[MockBackend] Saved graph statistics: {filename}")
+    print(f"[AOT MockBackend] Saved graph statistics: {filename}")
 
 def save_artifact(gm: torch.fx.GraphModule):
     """
@@ -163,7 +165,7 @@ def save_artifact(gm: torch.fx.GraphModule):
             elif 'example_value' in node.meta:
                  f.write(f"  example_value: {node.meta['example_value']}\n")
     
-    print(f"[MockBackend] Saved artifact to {filename}")
+    print(f"[AOT MockBackend] Saved artifact to {filename}")
 
 _INDUCTOR_DEBUG_ENABLED = False
 
@@ -246,7 +248,7 @@ def dump_inductor_artifacts(tag: str = "inductor"):
     candidates.sort(key=lambda p: os.path.getmtime(p), reverse=True)
 
     if not candidates:
-        # print("[MockBackend] No Inductor debug directories found (nothing to copy)")
+        # print("[AOT MockBackend] No Inductor debug directories found (nothing to copy)")
         return
 
     copied_ir = 0
@@ -281,9 +283,56 @@ def dump_inductor_artifacts(tag: str = "inductor"):
             break
 
     if copied_ir:
-        print(f"[MockBackend] Saved Inductor lowered IR ({copied_ir} files) → {ir_dir}")
+        print(f"[AOT MockBackend] Saved Inductor lowered IR ({copied_ir} files) → {ir_dir}")
     if copied_kernels:
-        print(f"[MockBackend] Saved Inductor kernels ({copied_kernels} files) → {kernel_dir}")
+        print(f"[AOT MockBackend] Saved Inductor kernels ({copied_kernels} files) → {kernel_dir}")
 
     if not copied_ir and not copied_kernels:
-        print("[MockBackend] Found Inductor debug dir but no matching IR/kernel files to copy")
+        print("[AOT MockBackend] Found Inductor debug dir but no matching IR/kernel files to copy")
+
+def _generate_repro_aot(gm, example_inputs, error_message):
+    """
+    Best-effort repro generation for AOT graphs.
+
+    NOTE:
+    Some AOT graphs (especially backward graphs) may contain scalar-extraction
+    or control-flow artifacts (e.g. aten._local_scalar_dense) that cannot be
+    serialized or executed standalone. In these cases, repro generation is
+    intentionally skipped and the backend falls back to full graph artifacts.
+    """
+    repro_dir = os.path.join("debug_artifacts", "repros")
+    os.makedirs(repro_dir, exist_ok=True)
+
+    timestamp = int(time.time())
+    graph_hash = hashlib.md5(str(gm.graph).encode()).hexdigest()[:8]
+    repro_path = os.path.join(repro_dir, f"repro_{timestamp}_{graph_hash}.py")
+
+    try:
+        minifier = Minifier(gm, tuple(example_inputs), RuntimeError(error_message))
+        minifier.minify()
+        minifier.generate_repro_script(repro_path)
+
+        print(f"[AOT MockBackend] Saved repro script: {repro_path}")
+        return repro_path
+
+    except Exception as exc:
+        unminifiable_op_hints = (
+            "aten._local_scalar_dense",
+            "local_scalar",
+        )
+
+        if any(hint in str(exc) for hint in unminifiable_op_hints):
+            print(
+                "[AOT MockBackend] Repro generation skipped: "
+                "AOT graph contains scalar or non-tensor ops "
+                "(e.g. aten._local_scalar_dense) that cannot be "
+                "minified or serialized safely."
+            )
+        else:
+            print(
+                "[AOT MockBackend] Repro generation failed unexpectedly: "
+                f"{exc}"
+            )
+
+        # Intentionally return None: repro is best-effort only
+        return None

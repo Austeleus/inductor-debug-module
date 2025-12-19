@@ -13,6 +13,7 @@ from .aot_capture import (
     save_graph_statistics,
     dump_inductor_artifacts,
     _enable_inductor_debug,
+    _generate_repro_aot,
 )
 
 class ConstraintChecker:
@@ -57,7 +58,7 @@ class ConstraintChecker:
                 print("   ", msg)
 
         return True
-    
+
 def compile_graph_with_aot(gm: torch.fx.GraphModule, example_inputs, constraints, strict):
     """
     The single entry point used by mock_backend.
@@ -79,7 +80,11 @@ def compile_graph_with_aot(gm: torch.fx.GraphModule, example_inputs, constraints
         save_post_aot_forward(aot_gm)
         save_graph_statistics(aot_gm, "fwd")
 
-        checker.check_graph(aot_gm)
+        try:
+            checker.check_graph(aot_gm)
+        except RuntimeError as e:
+            _generate_repro_aot(aot_gm, aot_inputs, str(e))
+            raise
         
         compiled = compile_fx(aot_gm, aot_inputs)
         dump_inductor_artifacts()
@@ -90,7 +95,11 @@ def compile_graph_with_aot(gm: torch.fx.GraphModule, example_inputs, constraints
         save_post_aot_backward(aot_gm)
         save_graph_statistics(aot_gm, "bwd")
 
-        checker.check_graph(aot_gm)
+        try:
+            checker.check_graph(aot_gm)
+        except RuntimeError as e:
+            _generate_repro_aot(aot_gm, aot_inputs, str(e))
+            raise
 
         compiled = compile_fx(aot_gm, aot_inputs)
         dump_inductor_artifacts()
