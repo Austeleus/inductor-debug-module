@@ -333,7 +333,6 @@ def main():
         ("Memory constraint",       test_memory_constraint),
         ("Multiple constraints",    test_multiple_constraints),
         ("Inductor IR + kernels",   test_inductor_ir_and_kernels_dump),
-
     ]
 
     passed = 0

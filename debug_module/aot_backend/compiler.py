@@ -74,17 +74,18 @@ def compile_graph_with_aot(gm: torch.fx.GraphModule, example_inputs, constraints
 
     # Instantiate constraint checker
     checker = ConstraintChecker(constraints=constraints, strict=strict)
+    try:
+        checker.check_graph(gm)
+    except RuntimeError as e:
+        _generate_repro_aot(gm, example_inputs, str(e))
+        raise
 
     # Define AOT forward compiler hook
     def fw_compiler(aot_gm, aot_inputs):
         save_post_aot_forward(aot_gm)
         save_graph_statistics(aot_gm, "fwd")
 
-        try:
-            checker.check_graph(aot_gm)
-        except RuntimeError as e:
-            _generate_repro_aot(aot_gm, aot_inputs, str(e))
-            raise
+        checker.check_graph(aot_gm)
         
         compiled = compile_fx(aot_gm, aot_inputs)
         dump_inductor_artifacts()
@@ -95,11 +96,7 @@ def compile_graph_with_aot(gm: torch.fx.GraphModule, example_inputs, constraints
         save_post_aot_backward(aot_gm)
         save_graph_statistics(aot_gm, "bwd")
 
-        try:
-            checker.check_graph(aot_gm)
-        except RuntimeError as e:
-            _generate_repro_aot(aot_gm, aot_inputs, str(e))
-            raise
+        checker.check_graph(aot_gm)
 
         compiled = compile_fx(aot_gm, aot_inputs)
         dump_inductor_artifacts()
