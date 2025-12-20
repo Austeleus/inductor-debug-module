@@ -5,6 +5,12 @@ A comprehensive debugging toolkit for developing custom accelerators with PyTorc
 **Sponsored by:** IBM Research
 **Course:** HPML (High Performance Machine Learning)
 
+**Team Members**:
+- Alena Chan (ac5477)
+- Michael Chen (yc4131)
+- Nikhil Mudumbi (nm3497)
+- Srirag Tatavarti (sst2161)
+
 ## Features
 
 ### 1. Mock Backend Simulator (Eager Validation Mode)
@@ -103,6 +109,9 @@ python -m debug_module report --format json       # Machine-readable JSON
 # Clean artifacts
 python -m debug_module clean
 ```
+
+**Note:** We have not used a Weights and Biases (W&B) Dashboard -- since we are building a debugging and inspection tool rather than a training or experimentation pipeline. 
+Our mentor also agreed that W&B tracking did not make sense for our project.
 
 ## Installation
 
