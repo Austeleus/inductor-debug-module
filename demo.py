@@ -15,6 +15,8 @@ import sys
 import time
 import warnings
 from typing import Dict, Optional
+import glob
+import hashlib
 
 # Suppress some torch warnings for cleaner demo output
 warnings.filterwarnings('ignore', category=UserWarning, module='torch')
@@ -254,6 +256,96 @@ def print_code(code):
 def wait_for_enter(msg="Press Enter to continue..."):
     """Wait for user input."""
     input(f"\n{Colors.YELLOW}{msg}{Colors.END}")
+
+
+def show_latest_minifier_graph(max_bytes: int = 25 * 1024 * 1024, preview_lines: int = 60) -> bool:
+    """
+    Load the newest repro script, hash its serialized graph, and print the graph.
+    Skips extremely large repros to avoid OOM during the live demo.
+    """
+    repros = sorted(glob.glob("debug_artifacts/repros/repro_*.py"), key=os.path.getmtime)
+    if not repros:
+        print_info("No reproduction scripts found yet (debug_artifacts/repros).")
+        return False
+
+    path = repros[-1]
+    size = os.path.getsize(path)
+
+    print_subheader(f"Latest repro script: {os.path.basename(path)}")
+    print_info(f"Path: {path}")
+    print_info(f"Size: {size / (1024 ** 2):.1f} MB")
+
+    if size > max_bytes:
+        print(f"{Colors.YELLOW}! Repro is large (> {max_bytes / (1024 ** 2):.1f} MB); "
+              f"skipping auto-load to keep the demo responsive.{Colors.END}")
+        return False
+
+    try:
+        spec = importlib.util.spec_from_file_location("demo_minifier_repro", path)
+        if spec is None or spec.loader is None:
+            raise RuntimeError("Unable to import repro script.")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        gm = module.load_module() if hasattr(module, "load_module") else None
+        if gm is None:
+            print_info("Repro does not expose load_module(); skipping graph view.")
+            return False
+
+        serialized = getattr(module, "SERIALIZED_GRAPH", "")
+        graph_hash = hashlib.sha256(serialized.encode("utf-8")).hexdigest()[:16] if serialized else None
+        if graph_hash:
+            print_info(f"Graph hash (sha256 prefix): {graph_hash}")
+
+        metrics = getattr(module, "METRICS", {}) or {}
+        failing_node = metrics.get("failing_node") or None
+        failure_message = metrics.get("failure_message") or "unknown failure"
+        reduction = metrics.get("graph_reduction") or {}
+        coverage = metrics.get("constraint_coverage") or {}
+
+        # Quick summary
+        print_info("Failure summary:")
+        print(f"  {Colors.RED}{failure_message}{Colors.END}")
+        if failing_node:
+            print(f"  Failing node: {Colors.YELLOW}{failing_node}{Colors.END}")
+        if coverage.get("failing_constraint"):
+            print(f"  Constraint: {coverage.get('failing_constraint')}")
+        if reduction:
+            orig = reduction.get("original_nodes")
+            mini = reduction.get("minified_nodes")
+            ratio = reduction.get("reduction_ratio")
+            if orig is not None and mini is not None:
+                ratio_text = f"{ratio:.2f}" if isinstance(ratio, (int, float)) else "n/a"
+                print(f"  Graph size: {orig} -> {mini} nodes (ratio={ratio_text})")
+
+        # Node listing with highlight
+        print_info("FX graph (node list):")
+        for idx, node in enumerate(gm.graph.nodes):
+            mark = f"{Colors.YELLOW}➜{Colors.END} " if failing_node and node.name == failing_node else "  "
+            args_preview = ""
+            try:
+                args_preview = ", ".join(str(a) for a in node.args)[:120]
+            except Exception:
+                args_preview = ""
+            print(f"{mark}{idx:02d} | {node.op:<12} {node.target} ({args_preview})")
+
+        print_info("FX graph (tabular):")
+        gm.graph.print_tabular()
+
+        readable = gm.print_readable(print_output=False)
+        lines = readable.splitlines()
+
+        print_info("Minified graph (readable excerpt):")
+        for line in lines[:preview_lines]:
+            print(line)
+        if len(lines) > preview_lines:
+            print_info(f"... ({len(lines) - preview_lines} more lines)")
+
+        wandb_log_text("minifier/auto_graph", "\n".join(lines[:preview_lines]))
+        return True
+    except Exception as exc:  # pragma: no cover - best-effort demo helper
+        print(f"{Colors.RED}! Failed to load repro graph: {exc}{Colors.END}")
+        return False
 
 
 def demo_intro():
@@ -1170,6 +1262,7 @@ def demo_bert_quickrun():
     # KernelDiff knobs
     atol = _ask_float("KernelDiff atol", 1e-5)
     rtol = _ask_float("KernelDiff rtol", 1e-4)
+    use_aot_for_kd = _ask_bool("Use AOT backend for KernelDiff? (otherwise plain mock)", False)
 
     # Heatmap knobs
     prefer_show = _ask_bool("Show heatmaps in popup window? (otherwise save only)", True)
@@ -1231,7 +1324,11 @@ def demo_bert_quickrun():
         eager_out = model(**inputs).last_hidden_state.detach()
 
     torch._dynamo.reset()
-    opt_model_kd = torch.compile(model, backend=mock_backend)
+    if use_aot_for_kd:
+        backend_kd = aot_mock_backend(strict=mock_strict)
+        opt_model_kd = torch.compile(model, backend=backend_kd, mode="max-autotune")
+    else:
+        opt_model_kd = torch.compile(model, backend=mock_backend)
     with torch.no_grad():
         compiled_out = opt_model_kd(**inputs).last_hidden_state.detach()
 
@@ -1306,6 +1403,9 @@ def demo_bert_quickrun():
             else:
                 os.environ.pop("MOCK_MAX_MEMORY", None)
             torch._dynamo.reset()
+
+    print_subheader("Minifier graph preview (latest repro)")
+    show_latest_minifier_graph()
 
     print_success("BERT quick run complete")
 
