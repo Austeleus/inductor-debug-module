@@ -83,6 +83,7 @@ def run_resnet_benchmark(
     num_inference: int = 5,
     device: str = "cpu",
     variant: str = "resnet18",
+    backend: str = "mock",
     save_results: bool = True,
 ) -> BenchmarkResult:
     """Run the ResNet benchmark."""
@@ -98,7 +99,7 @@ def run_resnet_benchmark(
         variant=variant,
     )
 
-    result = benchmark.run()
+    result = benchmark.run(test_backend=backend)
 
     if save_results:
         result.save()

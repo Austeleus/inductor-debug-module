@@ -292,8 +292,12 @@ class BaseBenchmark(ABC):
 
         return result
 
-    def run(self) -> BenchmarkResult:
-        """Run the complete benchmark."""
+    def run(self, test_backend: str = "mock") -> BenchmarkResult:
+        """Run the complete benchmark.
+
+        Args:
+            test_backend: Backend to compare against eager. Options: "mock" (default), "aot".
+        """
         print(f"\n{'='*60}")
         print(f"Benchmarking: {self.model_name}")
         print(f"{'='*60}\n")
@@ -315,6 +319,7 @@ class BaseBenchmark(ABC):
 
         # Import here to avoid circular imports
         from debug_module import mock_backend
+        from debug_module.aot_backend.mock import aot_mock_backend
 
         # 1. Eager baseline
         print("\n[Benchmark] Eager (baseline)...")
@@ -333,14 +338,29 @@ class BaseBenchmark(ABC):
             compile_fn=lambda m: torch.compile(m, backend="inductor")
         )
 
-        # 3. Mock backend (with warning capture)
-        print("\n[Benchmark] Mock Backend...")
-        with WarningCapture() as capture:
+        # 3. Test backend (mock or AOT mock)
+        backend_label = "Mock" if test_backend == "mock" else "AOT Mock"
+        print(f"\n[Benchmark] {backend_label} Backend...")
+
+        backend_callable = aot_mock_backend(strict=None) if test_backend == "aot" else mock_backend
+
+        def _compile_backend(model):
+            if test_backend == "aot":
+                return torch.compile(model, backend=backend_callable, mode="max-autotune")
+            return torch.compile(model, backend=backend_callable)
+
+        if test_backend == "mock":
+            with WarningCapture() as capture:
+                result.mock_result = self._benchmark_backend(
+                    backend_label,
+                    compile_fn=_compile_backend,
+                )
+                result.mock_result.constraint_warnings = capture.warnings
+        else:
             result.mock_result = self._benchmark_backend(
-                "Mock",
-                compile_fn=lambda m: torch.compile(m, backend=mock_backend)
+                backend_label,
+                compile_fn=_compile_backend,
             )
-            result.mock_result.constraint_warnings = capture.warnings
 
         # 4. Guard/Graph analysis
         print("\n[Analysis] Running guard inspection...")
@@ -363,7 +383,7 @@ class BaseBenchmark(ABC):
         except Exception as e:
             print(f"  Guard inspection failed: {e}")
 
-        # 5. KernelDiff comparison (mock vs eager)
+        # 5. KernelDiff comparison (test backend vs eager)
         print("\n[Analysis] Running KernelDiff comparison...")
         if result.eager_result.success and result.mock_result.success:
             try:
@@ -382,6 +402,7 @@ class BaseBenchmark(ABC):
                     model_name=self.model_name,
                     reference_backend="eager",
                     comparison_config=config,
+                    test_backend=backend_callable,
                 )
 
                 diff_report = harness.compare(

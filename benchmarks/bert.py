@@ -77,6 +77,7 @@ def run_bert_benchmark(
     num_warmup: int = 2,
     num_inference: int = 5,
     device: str = "cpu",
+    backend: str = "mock",
     save_results: bool = True,
 ) -> BenchmarkResult:
     """Run the BERT benchmark."""
@@ -91,7 +92,7 @@ def run_bert_benchmark(
         device=device,
     )
 
-    result = benchmark.run()
+    result = benchmark.run(test_backend=backend)
 
     if save_results:
         result.save()

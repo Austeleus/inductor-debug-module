@@ -204,6 +204,7 @@ def run_mamba_benchmark(
     num_inference: int = 5,
     device: str = "cpu",
     use_pretrained: bool = True,
+    backend: str = "mock",
     save_results: bool = True,
 ) -> BenchmarkResult:
     """Run the Mamba benchmark."""
@@ -225,7 +226,7 @@ def run_mamba_benchmark(
             device=device,
         )
 
-    result = benchmark.run()
+    result = benchmark.run(test_backend=backend)
 
     if save_results:
         result.save()

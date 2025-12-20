@@ -335,6 +335,12 @@ Examples:
         help="Number of inference runs (default: 5)",
     )
     parser.add_argument(
+        "--backend",
+        choices=["mock", "aot"],
+        default="mock",
+        help="Test backend for benchmarks (default: mock)",
+    )
+    parser.add_argument(
         "--output-dir",
         default="benchmarks/results",
         help="Output directory for results",
@@ -429,6 +435,7 @@ Examples:
                 num_warmup=args.warmup,
                 num_inference=args.runs,
                 device=args.device,
+                backend=args.backend,
                 save_results=True,
             )
             results.append(result)

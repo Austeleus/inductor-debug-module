@@ -239,6 +239,11 @@ class KernelDiffHarness:
         self.model_name = model_name or self._infer_model_name(model)
         self.reference_backend = reference_backend
         self.test_backend = test_backend
+        self.test_backend_name = (
+            getattr(test_backend, "__name__", "mock_backend")
+            if test_backend is not None
+            else "mock_backend"
+        )
         self.comparison_config = comparison_config or ComparisonConfig()
         self.visualization_config = visualization_config or VisualizationConfig()
 
@@ -293,8 +298,9 @@ class KernelDiffHarness:
             # Import mock_backend as default
             from ..backend.mock import mock_backend
             self.test_backend = mock_backend
+            self.test_backend_name = "mock_backend"
 
-        print(f"[KernelDiff] Compiling with test backend: mock_backend")
+        print(f"[KernelDiff] Compiling with test backend: {self.test_backend_name}")
         start = time.time()
 
         self._test_compiled = torch.compile(
@@ -377,7 +383,7 @@ class KernelDiffHarness:
             model_name=self.model_name,
             timestamp=time.time(),
             reference_backend=self.reference_backend,
-            test_backend="mock_backend",
+            test_backend=self.test_backend_name,
         )
 
         try:
