@@ -1407,6 +1407,18 @@ def demo_bert_quickrun():
     print_subheader("Minifier graph preview (latest repro)")
     show_latest_minifier_graph()
 
+    # --------- 6) Optional HTML report ---------
+    if _ask_bool("Generate HTML report from captured artifacts now?", False):
+        if _ask_bool("Run benchmarks (python -m benchmarks.runner --all) before generating the report? This may take a while.", False):
+            use_aot_bench = _ask_bool("Use AOT mock backend for benchmarks? (otherwise plain mock)", False)
+            backend_flag = ["--backend", "aot"] if use_aot_bench else []
+            print_info(f"Running benchmarks: python -m benchmarks.runner --all {'(AOT)' if use_aot_bench else '(mock)'}")
+            subprocess.run(["python", "-m", "benchmarks.runner", "--all", *backend_flag], check=False)
+        from debug_module.reports import HTMLReportGenerator
+        generator = HTMLReportGenerator()
+        report_path = generator.generate("debug_artifacts/reports")
+        print_success(f"HTML report generated: {report_path}")
+
     print_success("BERT quick run complete")
 
 
