@@ -132,6 +132,11 @@ Run the interactive demo for a guided tour of all features:
 python demo.py
 ```
 
+Choose:
+
+- Full tutorial: Guided steps through constraint checking, FX capture, AOTAutograd + TorchInductor, KernelDiff, minifier, benchmarks, HTML report, and CLI.
+- Quick run: Small HF model with interactive knobs (batch/padding/tolerances/constraints), optional AOT backend for KernelDiff, heatmaps, and an optional forced failure to generate a repro.
+
 ### Using the Mock Backend
 
 ```python
