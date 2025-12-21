@@ -155,6 +155,44 @@ pip install -e .[dev]
 
 ## Quick Start
 
+### Quick Package Test
+
+```bash
+# Base install
+pip install .
+
+# Editable install with dev tooling (pytest, linters)
+pip install -e '.[dev]'
+
+# Optional extras
+pip install -e '.[benchmarks]'    # Hugging Face + matplotlib
+pip install -e '.[visualization]' # only matplotlib for KernelDiff plots
+
+# Python usage
+python - <<'PY'
+from debug_module import mock_backend, GuardInspector, KernelDiffHarness
+from debug_module.aot_backend.mock import aot_mock_backend
+print("mock backend ready:", mock_backend)
+PY
+
+# CLI entry point (inductor-debug)
+inductor-debug list
+inductor-debug analyze --type guards
+inductor-debug report --format html
+inductor-debug clean
+
+# Legacy entry point still works
+python -m debug_module list
+
+# Benchmarks & demos are just modules
+python -m benchmarks.runner --all
+python demo.py
+
+# Tests
+pytest                       # GPUs/Linux recommended for full suite
+pytest -k "not aotbackend and not kerneldiff_bert and not comprehensive"  # CPU-friendly subset
+```
+
 ### Interactive Demo
 
 Run the interactive demo for a guided tour of all features:
