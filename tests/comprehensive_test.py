@@ -99,6 +99,12 @@ def _run_backend_dtype_failure():
     print_info("Expected: FAIL - float64 is NOT in the allowed dtype set")
     print_info("Allowed dtypes: {float32, int64, bool}")
 
+    prev_strict = os.environ.get("MOCK_STRICT")
+    os.environ["MOCK_STRICT"] = "1"
+
+    import importlib
+    import debug_module.backend.compiler as compiler
+    importlib.reload(compiler)
     from debug_module import mock_backend
 
     def simple_model(x, y):
@@ -121,6 +127,11 @@ def _run_backend_dtype_failure():
     except Exception as e:
         print_fail(f"Unexpected error type: {e}")
         return False
+    finally:
+        if prev_strict is None:
+            os.environ.pop("MOCK_STRICT", None)
+        else:
+            os.environ["MOCK_STRICT"] = prev_strict
 
 
 def _run_backend_shape_alignment():
@@ -131,6 +142,8 @@ def _run_backend_shape_alignment():
     print_info("Expected: FAIL - tensor dimension 10 is not divisible by 8")
 
     # Set environment variable
+    prev_strict = os.environ.get("MOCK_STRICT")
+    os.environ["MOCK_STRICT"] = "1"
     os.environ["MOCK_ALIGNMENT"] = "8"
 
     # Need to reimport to pick up new env vars
@@ -161,6 +174,10 @@ def _run_backend_shape_alignment():
         print_fail(f"Unexpected error type: {e}")
         return False
     finally:
+        if prev_strict is None:
+            os.environ.pop("MOCK_STRICT", None)
+        else:
+            os.environ["MOCK_STRICT"] = prev_strict
         # Reset
         os.environ["MOCK_ALIGNMENT"] = "1"
 
@@ -172,6 +189,8 @@ def _run_backend_shape_alignment_success():
     print_info("Setting MOCK_ALIGNMENT=8")
     print_info("Expected: PASS - tensor dimension 16 is divisible by 8")
 
+    prev_strict = os.environ.get("MOCK_STRICT")
+    os.environ["MOCK_STRICT"] = "1"
     os.environ["MOCK_ALIGNMENT"] = "8"
 
     import importlib
@@ -198,6 +217,10 @@ def _run_backend_shape_alignment_success():
         return False
     finally:
         os.environ["MOCK_ALIGNMENT"] = "1"
+        if prev_strict is None:
+            os.environ.pop("MOCK_STRICT", None)
+        else:
+            os.environ["MOCK_STRICT"] = prev_strict
 
 
 def _run_backend_memory_constraint():
@@ -208,6 +231,8 @@ def _run_backend_memory_constraint():
     print_info("Setting MOCK_MAX_MEMORY=1024 (1KB)")
     print_info("Expected: FAIL - tensor size exceeds 1KB limit")
 
+    prev_strict = os.environ.get("MOCK_STRICT")
+    os.environ["MOCK_STRICT"] = "1"
     os.environ["MOCK_MAX_MEMORY"] = "1024"
 
     import importlib
@@ -240,6 +265,10 @@ def _run_backend_memory_constraint():
         return False
     finally:
         os.environ["MOCK_MAX_MEMORY"] = str(1024**3 * 16)
+        if prev_strict is None:
+            os.environ.pop("MOCK_STRICT", None)
+        else:
+            os.environ["MOCK_STRICT"] = prev_strict
 
 
 def _run_backend_non_strict_mode():
