@@ -23,6 +23,10 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from debug_module.utils import BackendCompilerFailed
+try:
+    from torch._dynamo.exc import BackendCompilerFailed as TorchBackendCompilerFailed  # type: ignore
+except Exception:  # pragma: no cover - older torch versions
+    TorchBackendCompilerFailed = BackendCompilerFailed
 
 # Add color support for terminal output
 class Colors:
@@ -120,7 +124,7 @@ def _run_backend_dtype_failure():
         result = compiled(x, y)
         print_fail("Should have failed but succeeded!")
         return False
-    except BackendCompilerFailed as e:
+    except (BackendCompilerFailed, TorchBackendCompilerFailed) as e:
         print_success("Correctly rejected float64!")
         print_info(f"Error: {str(e)[:100]}...")
         return True
@@ -166,7 +170,7 @@ def _run_backend_shape_alignment():
         result = compiled(x)
         print_fail("Should have failed alignment check!")
         return False
-    except BackendCompilerFailed as e:
+    except (BackendCompilerFailed, TorchBackendCompilerFailed) as e:
         print_success("Correctly rejected misaligned shape!")
         print_info(f"Error: {str(e)[:100]}...")
         return True
@@ -256,7 +260,7 @@ def _run_backend_memory_constraint():
         result = compiled(x)
         print_fail("Should have failed memory check!")
         return False
-    except BackendCompilerFailed as e:
+    except (BackendCompilerFailed, TorchBackendCompilerFailed) as e:
         print_success("Correctly rejected oversized tensor!")
         print_info(f"Error: {str(e)[:100]}...")
         return True
@@ -302,7 +306,7 @@ def _run_backend_non_strict_mode():
         result = compiled(x)
         print_success("Execution completed with warnings (non-strict mode)")
         return True
-    except BackendCompilerFailed as e:
+    except (BackendCompilerFailed, TorchBackendCompilerFailed) as e:
         print_fail(f"Should have succeeded in non-strict mode (got BackendCompilerFailed): {e}")
         return False
     except Exception as e:
