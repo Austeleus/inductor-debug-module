@@ -17,11 +17,16 @@ import torch
 import os
 import sys
 import time
+import pytest
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from debug_module.utils import BackendCompilerFailed
+try:
+    from torch._dynamo.exc import BackendCompilerFailed as TorchBackendCompilerFailed  # type: ignore
+except Exception:  # pragma: no cover - older torch versions
+    TorchBackendCompilerFailed = BackendCompilerFailed
 
 # Add color support for terminal output
 class Colors:
@@ -62,7 +67,7 @@ def print_test_start(name):
 # PART 1: MOCK BACKEND TESTS
 # ============================================================================
 
-def test_backend_basic_success():
+def _run_backend_basic_success():
     """Test that a simple model with valid dtypes passes."""
     print_test_start("Basic Success Case (float32)")
 
@@ -90,7 +95,7 @@ def test_backend_basic_success():
         return False
 
 
-def test_backend_dtype_failure():
+def _run_backend_dtype_failure():
     """Test that float64 dtype is rejected."""
     print_test_start("Dtype Constraint Failure (float64)")
 
@@ -98,6 +103,12 @@ def test_backend_dtype_failure():
     print_info("Expected: FAIL - float64 is NOT in the allowed dtype set")
     print_info("Allowed dtypes: {float32, int64, bool}")
 
+    prev_strict = os.environ.get("MOCK_STRICT")
+    os.environ["MOCK_STRICT"] = "1"
+
+    import importlib
+    import debug_module.backend.compiler as compiler
+    importlib.reload(compiler)
     from debug_module import mock_backend
 
     def simple_model(x, y):
@@ -113,16 +124,21 @@ def test_backend_dtype_failure():
         result = compiled(x, y)
         print_fail("Should have failed but succeeded!")
         return False
-    except BackendCompilerFailed as e:
+    except (BackendCompilerFailed, TorchBackendCompilerFailed) as e:
         print_success("Correctly rejected float64!")
         print_info(f"Error: {str(e)[:100]}...")
         return True
     except Exception as e:
         print_fail(f"Unexpected error type: {e}")
         return False
+    finally:
+        if prev_strict is None:
+            os.environ.pop("MOCK_STRICT", None)
+        else:
+            os.environ["MOCK_STRICT"] = prev_strict
 
 
-def test_backend_shape_alignment():
+def _run_backend_shape_alignment():
     """Test shape alignment constraint."""
     print_test_start("Shape Alignment Constraint")
 
@@ -130,6 +146,8 @@ def test_backend_shape_alignment():
     print_info("Expected: FAIL - tensor dimension 10 is not divisible by 8")
 
     # Set environment variable
+    prev_strict = os.environ.get("MOCK_STRICT")
+    os.environ["MOCK_STRICT"] = "1"
     os.environ["MOCK_ALIGNMENT"] = "8"
 
     # Need to reimport to pick up new env vars
@@ -152,7 +170,7 @@ def test_backend_shape_alignment():
         result = compiled(x)
         print_fail("Should have failed alignment check!")
         return False
-    except BackendCompilerFailed as e:
+    except (BackendCompilerFailed, TorchBackendCompilerFailed) as e:
         print_success("Correctly rejected misaligned shape!")
         print_info(f"Error: {str(e)[:100]}...")
         return True
@@ -160,17 +178,23 @@ def test_backend_shape_alignment():
         print_fail(f"Unexpected error type: {e}")
         return False
     finally:
+        if prev_strict is None:
+            os.environ.pop("MOCK_STRICT", None)
+        else:
+            os.environ["MOCK_STRICT"] = prev_strict
         # Reset
         os.environ["MOCK_ALIGNMENT"] = "1"
 
 
-def test_backend_shape_alignment_success():
+def _run_backend_shape_alignment_success():
     """Test that aligned shapes pass."""
     print_test_start("Shape Alignment Success (aligned)")
 
     print_info("Setting MOCK_ALIGNMENT=8")
     print_info("Expected: PASS - tensor dimension 16 is divisible by 8")
 
+    prev_strict = os.environ.get("MOCK_STRICT")
+    os.environ["MOCK_STRICT"] = "1"
     os.environ["MOCK_ALIGNMENT"] = "8"
 
     import importlib
@@ -197,9 +221,13 @@ def test_backend_shape_alignment_success():
         return False
     finally:
         os.environ["MOCK_ALIGNMENT"] = "1"
+        if prev_strict is None:
+            os.environ.pop("MOCK_STRICT", None)
+        else:
+            os.environ["MOCK_STRICT"] = prev_strict
 
 
-def test_backend_memory_constraint():
+def _run_backend_memory_constraint():
     """Test memory constraint."""
     print_test_start("Memory Constraint")
 
@@ -207,6 +235,8 @@ def test_backend_memory_constraint():
     print_info("Setting MOCK_MAX_MEMORY=1024 (1KB)")
     print_info("Expected: FAIL - tensor size exceeds 1KB limit")
 
+    prev_strict = os.environ.get("MOCK_STRICT")
+    os.environ["MOCK_STRICT"] = "1"
     os.environ["MOCK_MAX_MEMORY"] = "1024"
 
     import importlib
@@ -230,7 +260,7 @@ def test_backend_memory_constraint():
         result = compiled(x)
         print_fail("Should have failed memory check!")
         return False
-    except BackendCompilerFailed as e:
+    except (BackendCompilerFailed, TorchBackendCompilerFailed) as e:
         print_success("Correctly rejected oversized tensor!")
         print_info(f"Error: {str(e)[:100]}...")
         return True
@@ -239,9 +269,13 @@ def test_backend_memory_constraint():
         return False
     finally:
         os.environ["MOCK_MAX_MEMORY"] = str(1024**3 * 16)
+        if prev_strict is None:
+            os.environ.pop("MOCK_STRICT", None)
+        else:
+            os.environ["MOCK_STRICT"] = prev_strict
 
 
-def test_backend_non_strict_mode():
+def _run_backend_non_strict_mode():
     """Test non-strict mode (warnings only)."""
     print_test_start("Non-Strict Mode (Warnings Only)")
 
@@ -272,7 +306,7 @@ def test_backend_non_strict_mode():
         result = compiled(x)
         print_success("Execution completed with warnings (non-strict mode)")
         return True
-    except BackendCompilerFailed as e:
+    except (BackendCompilerFailed, TorchBackendCompilerFailed) as e:
         print_fail(f"Should have succeeded in non-strict mode (got BackendCompilerFailed): {e}")
         return False
     except Exception as e:
@@ -291,7 +325,7 @@ def test_backend_non_strict_mode():
 # PART 2: GUARD INSPECTOR TESTS
 # ============================================================================
 
-def test_guard_inspector_simple():
+def _run_guard_inspector_simple():
     """Test Guard Inspector with a simple model."""
     print_test_start("Guard Inspector - Simple Model")
 
@@ -327,7 +361,7 @@ def test_guard_inspector_simple():
         return False
 
 
-def test_guard_inspector_bert():
+def _run_guard_inspector_bert():
     """Test Guard Inspector with BERT model."""
     print_test_start("Guard Inspector - BERT Model")
 
@@ -373,7 +407,7 @@ def test_guard_inspector_bert():
 # PART 3: ARTIFACT INSPECTION
 # ============================================================================
 
-def test_artifact_generation():
+def _run_artifact_generation():
     """Test that artifacts are generated correctly."""
     print_test_start("Artifact Generation")
 
@@ -443,7 +477,7 @@ def test_artifact_generation():
 # PART 4: CLI TEST
 # ============================================================================
 
-def test_cli():
+def _run_cli():
     """Test CLI functionality."""
     print_test_start("CLI Functionality")
 
@@ -471,6 +505,51 @@ def test_cli():
     else:
         print_fail(f"CLI failed: {result.stderr}")
         return False
+
+
+# ============================================================================
+# Pytest wrappers (assert helper success)
+# ============================================================================
+
+def test_backend_basic_success():
+    assert _run_backend_basic_success()
+
+
+def test_backend_dtype_failure():
+    assert _run_backend_dtype_failure()
+
+
+def test_backend_shape_alignment():
+    assert _run_backend_shape_alignment()
+
+
+def test_backend_shape_alignment_success():
+    assert _run_backend_shape_alignment_success()
+
+
+def test_backend_memory_constraint():
+    assert _run_backend_memory_constraint()
+
+
+def test_backend_non_strict_mode():
+    assert _run_backend_non_strict_mode()
+
+
+def test_guard_inspector_simple():
+    assert _run_guard_inspector_simple()
+
+
+def test_guard_inspector_bert():
+    pytest.importorskip("transformers")
+    assert _run_guard_inspector_bert()
+
+
+def test_artifact_generation():
+    assert _run_artifact_generation()
+
+
+def test_cli():
+    assert _run_cli()
 
 
 # ============================================================================
@@ -509,27 +588,27 @@ def main():
     print_header("PART 1: Mock Backend Tests")
 
     print_section("Constraint Validation Tests")
-    results.append(("Basic Success (float32)", test_backend_basic_success()))
-    results.append(("Dtype Failure (float64)", test_backend_dtype_failure()))
-    results.append(("Shape Alignment Failure", test_backend_shape_alignment()))
-    results.append(("Shape Alignment Success", test_backend_shape_alignment_success()))
-    results.append(("Memory Constraint", test_backend_memory_constraint()))
+    results.append(("Basic Success (float32)", _run_backend_basic_success()))
+    results.append(("Dtype Failure (float64)", _run_backend_dtype_failure()))
+    results.append(("Shape Alignment Failure", _run_backend_shape_alignment()))
+    results.append(("Shape Alignment Success", _run_backend_shape_alignment_success()))
+    results.append(("Memory Constraint", _run_backend_memory_constraint()))
 
     print_section("Mode Tests")
-    results.append(("Non-Strict Mode", test_backend_non_strict_mode()))
+    results.append(("Non-Strict Mode", _run_backend_non_strict_mode()))
 
     # Part 2: Guard Inspector
     print_header("PART 2: Guard Inspector Tests")
-    results.append(("Guard Inspector (Simple)", test_guard_inspector_simple()))
-    results.append(("Guard Inspector (BERT)", test_guard_inspector_bert()))
+    results.append(("Guard Inspector (Simple)", _run_guard_inspector_simple()))
+    results.append(("Guard Inspector (BERT)", _run_guard_inspector_bert()))
 
     # Part 3: Artifacts
     print_header("PART 3: Artifact Generation")
-    results.append(("Artifact Generation", test_artifact_generation()))
+    results.append(("Artifact Generation", _run_artifact_generation()))
 
     # Part 4: CLI
     print_header("PART 4: CLI Interface")
-    results.append(("CLI List Command", test_cli()))
+    results.append(("CLI List Command", _run_cli()))
 
     # Summary
     print_header("TEST SUMMARY")
