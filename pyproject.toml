@@ -39,8 +39,8 @@ visualization = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/alenachan/inductor-debug-module"
-Repository = "https://github.com/alenachan/inductor-debug-module"
+Homepage = "https://github.com/Austeleus/inductor-debug-module"
+Repository = "https://github.com/Austeleus/inductor-debug-module"
 
 [project.scripts]
 inductor-debug = "debug_module.cli:main"
