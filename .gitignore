@@ -1,5 +1,8 @@
 .venv/
 debug_artifacts/
+wandb/
+build/
+*.egg-info/
 __pycache__/
 *.pyc
 .idea/

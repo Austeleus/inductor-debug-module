@@ -99,37 +99,58 @@ Command-line interface for managing the debug workflow.
 
 ```bash
 # List captured artifacts
-python -m debug_module list
+inductor-debug list
 
 # Analyze artifacts
-python -m debug_module analyze --type guards      # Dynamo guards analysis
-python -m debug_module analyze --type constraints # Constraint violations
-python -m debug_module analyze --type summary     # Overall summary
+inductor-debug analyze --type guards      # Dynamo guard analysis
+inductor-debug analyze --type constraints # Constraint violations
+inductor-debug analyze --type summary     # Overall summary
 
 # Generate reports
-python -m debug_module report --format html       # Visual HTML report
-python -m debug_module report --format json       # Machine-readable JSON
+inductor-debug report --format html       # Visual HTML report
+inductor-debug report --format json       # Machine-readable JSON
 
 # Clean artifacts
-python -m debug_module clean
+inductor-debug clean
+
+# The module entry point still works if you prefer `python -m ...`
+python -m debug_module list
 ```
 
 ## Installation
 
+### From source (recommended)
+
 ```bash
-# Clone the repository
 git clone https://github.com/Austeleus/inductor-debug-module.git
 cd inductor-debug-module
 
-# Create virtual environment
+# Create & activate a virtual environment (any manager works)
 python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
 
-# Install dependencies
-pip install torch torchvision transformers matplotlib
+# Install the library
+pip install .
+```
 
-# Optional: For GPU support
+### Editable/dev install
+
+```bash
+# Include tests, linters, and CLI entry points
+pip install -e .[dev]
+
+# Optional extras
+pip install -e .[benchmarks]    # Hugging Face + matplotlib
+pip install -e .[visualization] # Only matplotlib for KernelDiff plots
+```
+
+PyTorch has hardware specific wheels. When targeting CUDA builds refer to
+the [official installation selector](https://pytorch.org/get-started/locally/)
+and install the wheel *before* installing this package, e.g.:
+
+```bash
 pip install torch --index-url https://download.pytorch.org/whl/cu121
+pip install -e .[dev]
 ```
 
 ## Quick Start
@@ -222,7 +243,7 @@ python -m benchmarks.runner --list
 
 ```bash
 # Generate HTML report (after running benchmarks)
-python -m debug_module report --format html
+inductor-debug report --format html
 
 # Open the report
 # → debug_artifacts/reports/debug_report_<timestamp>.html

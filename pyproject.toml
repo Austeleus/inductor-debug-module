@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=70.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "inductor-debug-module"
+version = "0.1.0"
+description = "A TorchInductor debugging toolkit with mock backends, guard inspection, reports, and benchmarking utilities."
+readme = "README.md"
+authors = [
+    {name = "Alena Chan"},
+    {name = "Michael Chen"},
+    {name = "Nikhil Mudumbi"},
+    {name = "Srirag Tatavarti"},
+]
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.1",
+    "torchvision>=0.16",
+    "numpy>=1.23",
+    "networkx>=3.0",
+    "graphviz>=0.20",
+    "pydot>=1.4.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-xdist>=3.2",
+    "black>=24.1.0",
+    "flake8>=6.1.0",
+]
+benchmarks = [
+    "transformers>=4.36.0",
+    "matplotlib>=3.8.0",
+]
+visualization = [
+    "matplotlib>=3.8.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/alenachan/inductor-debug-module"
+Repository = "https://github.com/alenachan/inductor-debug-module"
+
+[project.scripts]
+inductor-debug = "debug_module.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+exclude = ["tests", "debug_artifacts", "context", "teammates"]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-ra"
+testpaths = ["tests"]

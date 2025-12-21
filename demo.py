@@ -137,11 +137,6 @@ def show_or_save_heatmap(
         except Exception:
             pass
 
-try:
-    import wandb  # type: ignore
-except ImportError:  # pragma: no cover - optional dependency
-    wandb = None
-
 # Add project to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -156,71 +151,6 @@ class Colors:
     BOLD = '\033[1m'
     UNDERLINE = '\033[4m'
     END = '\033[0m'
-
-
-class DemoWandbLogger:
-    """Lightweight WandB helper for the interactive demo."""
-
-    def __init__(self, run, module):
-        self._run = run
-        self._wandb = module
-
-    @staticmethod
-    def _enabled() -> bool:
-        flag = os.environ.get("DEMO_WANDB", "")
-        if not flag:
-            return False
-        return flag.lower() not in ("0", "false", "no")
-
-    @classmethod
-    def create(cls):
-        if not cls._enabled():
-            return None
-        if wandb is None:
-            print("[Demo] wandb is not installed; skipping Weights & Biases logging.")
-            return None
-        run = wandb.init(
-            project=os.environ.get("WANDB_PROJECT", "inductor-debug-demo"),
-            name=os.environ.get("WANDB_RUN_NAME"),
-            tags=["demo", "inductor-debug"],
-            config={"script": "demo.py"},
-        )
-        print("[Demo] Logging run to Weights & Biases.")
-        return cls(run, wandb)
-
-    def log_stage(self, stage: str, status: str, extra: Optional[Dict[str, object]] = None):
-        payload = {"demo_stage": stage, "demo_status": status}
-        if extra:
-            payload.update(extra)
-        self._run.log(payload)
-
-    def log_text(self, key: str, text: str):
-        html = self._wandb.Html(f"<pre>{text}</pre>")
-        self._run.log({key: html})
-
-    def log_metrics(self, metrics: Dict[str, object]):
-        self._run.log(metrics)
-
-    def finish(self):
-        self._run.finish()
-
-
-DEMO_WANDB_LOGGER: Optional[DemoWandbLogger] = None
-
-
-def wandb_log_stage(stage: str, status: str, extra: Optional[Dict[str, object]] = None):
-    if DEMO_WANDB_LOGGER:
-        DEMO_WANDB_LOGGER.log_stage(stage, status, extra)
-
-
-def wandb_log_text(key: str, text: str):
-    if DEMO_WANDB_LOGGER:
-        DEMO_WANDB_LOGGER.log_text(key, text)
-
-
-def wandb_log_metrics(metrics: Dict[str, object]):
-    if DEMO_WANDB_LOGGER and metrics:
-        DEMO_WANDB_LOGGER.log_metrics(metrics)
 
 
 def print_header(text):
@@ -341,7 +271,6 @@ def show_latest_minifier_graph(max_bytes: int = 25 * 1024 * 1024, preview_lines:
         if len(lines) > preview_lines:
             print_info(f"... ({len(lines) - preview_lines} more lines)")
 
-        wandb_log_text("minifier/auto_graph", "\n".join(lines[:preview_lines]))
         return True
     except Exception as exc:  # pragma: no cover - best-effort demo helper
         print(f"{Colors.RED}! Failed to load repro graph: {exc}{Colors.END}")
@@ -965,16 +894,13 @@ def demo_minifier():
         latest = repros[-1]
         print(f"\n{Colors.CYAN}Sample repro script ({os.path.basename(latest)}):{Colors.END}")
         print("-" * 50)
-        preview = ""
         with open(latest) as f:
             content = f.read()
             lines = content.split('\n')[:40]
-            preview = "\n".join(lines)
             for line in lines:
                 print(line)
             if len(content.split('\n')) > 40:
                 print(f"\n... ({len(content.split(chr(10))) - 40} more lines)")
-        wandb_log_text("minifier/repro_preview", preview)
         print("-" * 50)
         print_info("Loading minified graph from the latest repro script...")
         try:
@@ -988,7 +914,6 @@ def demo_minifier():
                 print(f"\n{Colors.CYAN}Reconstructed FX graph:{Colors.END}")
                 gm.graph.print_tabular()
                 graph_readable = gm.print_readable(print_output=False)
-                wandb_log_text("minifier/minified_graph", graph_readable)
                 metrics = None
                 metrics_fn = getattr(repro_module, "get_metrics", None)
                 if callable(metrics_fn):
@@ -1006,18 +931,6 @@ def demo_minifier():
                             f"Minifier runtime: {runtime_ms:.2f} ms | nodes {orig_nodes} -> {min_nodes} "
                             f"(ratio={ratio_text}) | failing constraint: {failing_constraint}"
                         )
-                    wandb_payload: Dict[str, object] = {
-                        "minifier/runtime_ms": runtime_ms,
-                        "minifier/original_nodes": orig_nodes or 0,
-                        "minifier/minified_nodes": min_nodes or 0,
-                        "minifier/node_ratio": ratio or 0.0,
-                        "minifier/failing_constraint": failing_constraint,
-                    }
-                    for name, count in coverage.get("checks", {}).items():
-                        wandb_payload[f"minifier/constraints/checks/{name}"] = count
-                    for name, count in coverage.get("failures", {}).items():
-                        wandb_payload[f"minifier/constraints/failures/{name}"] = count
-                    wandb_log_metrics(wandb_payload)
             else:
                 print_info("Repro script does not expose load_module(); skipping graph view.")
         except Exception as exc:
@@ -1421,15 +1334,9 @@ def demo_bert_quickrun():
 
     print_success("BERT quick run complete")
 
-
-
 def main():
     """Run the demo (full tutorial or BERT quick run)."""
     print("\n" * 2)
-
-    global DEMO_WANDB_LOGGER
-    DEMO_WANDB_LOGGER = DemoWandbLogger.create()
-    wandb_log_stage("demo", "started")
 
     try:
         # ===== NEW: Mode selection =====
@@ -1457,39 +1364,30 @@ def main():
 
         # ===== FULL TUTORIAL =====
         demo_intro()
-        wandb_log_stage("intro", "completed")
         wait_for_enter("Press Enter to start the demo...")
 
         demo_constraint_checking()
-        wandb_log_stage("constraint_checking", "completed")
         wait_for_enter()
 
         demo_fx_graph_capture()
-        wandb_log_stage("fx_graph_capture", "completed")
         wait_for_enter()
 
         demo_aot_backend()
-        wandb_log_stage("aot_backend", "completed")
         wait_for_enter()
 
         demo_kerneldiff()
-        wandb_log_stage("kerneldiff", "completed")
         wait_for_enter()
 
         demo_minifier()
-        wandb_log_stage("minifier", "completed")
         wait_for_enter()
 
         demo_benchmarks()
-        wandb_log_stage("benchmarks", "completed")
         wait_for_enter()
 
         demo_html_report()
-        wandb_log_stage("html_report", "completed")
         wait_for_enter()
 
         demo_cli()
-        wandb_log_stage("cli", "completed")
         wait_for_enter()
 
         demo_bert_quickrun()
@@ -1499,16 +1397,10 @@ def main():
         wait_for_enter()
 
         demo_summary()
-        wandb_log_stage("summary", "completed")
-        wandb_log_stage("demo", "completed")
 
     except KeyboardInterrupt:
-        wandb_log_stage("demo", "interrupted")
         print(f"\n\n{Colors.YELLOW}Demo interrupted.{Colors.END}\n")
         sys.exit(0)
-    finally:
-        if DEMO_WANDB_LOGGER:
-            DEMO_WANDB_LOGGER.finish()
 
 
 
