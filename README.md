@@ -287,6 +287,89 @@ inductor-debug report --format html
 # → debug_artifacts/reports/debug_report_<timestamp>.html
 ```
 
+## Debugger Usage Examples
+
+### Example 1: Catch dtype/layout violations before lowering
+Enforce strict constraints by running the mock backend via `torch.compile`. Any unsupported dtype, alignment, or stride will raise immediately and the CLI surfaces the repro artifacts.
+
+```bash
+export MOCK_STRICT=1
+export MOCK_ALIGNMENT=16
+
+python - <<'PY'
+import torch
+from debug_module import mock_backend
+
+class TinyAttention(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.proj = torch.nn.Linear(64, 64)
+
+    def forward(self, x):
+        return self.proj(x.double())  # Force float64 to trip dtype constraints
+
+model = TinyAttention()
+compiled = torch.compile(model, backend=mock_backend)
+compiled(torch.randn(32, 64))
+PY
+
+# Inspect violations and generated repro scripts
+inductor-debug analyze --type constraints
+```
+
+### Example 2: Validate kernels numerically with KernelDiff
+Compare eager execution against the mock backend (or your custom backend) to maintain accuracy gates. The harness emits JSON plus error heatmaps for failing tensors.
+
+```bash
+python - <<'PY'
+import torch
+from debug_module.diff import KernelDiffHarness
+from debug_module import mock_backend
+
+class TinyMLP(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.net = torch.nn.Sequential(
+            torch.nn.Linear(128, 256),
+            torch.nn.ReLU(),
+            torch.nn.Linear(256, 128),
+        )
+
+    def forward(self, x):
+        return self.net(x)
+
+model = TinyMLP()
+example_inputs = (torch.randn(16, 128),)
+
+harness = KernelDiffHarness(
+    model,
+    example_inputs,
+    model_name="tiny_mlp",
+    reference_backend="eager",
+    test_backend=mock_backend,
+)
+
+report = harness.compare(generate_visualizations=True)
+print(report.summary())
+PY
+
+# JSON + plots land in debug_artifacts/reports/
+```
+
+### Example 3: Investigate guard-induced graph breaks and publish reports
+Pair the benchmark runner with the CLI analyzers to understand guard explosions, then ship an HTML dashboard summarizing constraints, benchmarks, and KernelDiff outcomes.
+
+```bash
+# Capture FX graphs, guards, timings, and artifacts
+python -m benchmarks.runner --model resnet
+
+# Explain why TorchDynamo broke graphs
+inductor-debug analyze --type guards
+
+# Bundle the findings into an HTML report
+inductor-debug report --format html
+```
+
 ## Configuration
 
 ### Environment Variables
@@ -304,6 +387,26 @@ export MOCK_ALIGNMENT=8
 export MOCK_MAX_MEMORY=1073741824  # 1 GB
 python your_script.py
 ```
+
+## Troubleshooting
+
+### Installation fails
+- Ensure PyTorch (matching your CUDA/CPU stack) is installed *before* this package: `pip install torch --index-url https://download.pytorch.org/whl/cu121 && pip install -e .[dev]`.
+- Extras such as `.[benchmarks]` pull in large dependencies (HuggingFace, matplotlib); add `--extra-index-url` or a proxy if your environment requires it.
+- If `pip` cannot find `debug_module`, verify you are in the repo root (`pyproject.toml` present) and that your virtualenv is activated.
+- Wheels built on one platform are not portable; re-run `pip install -e .` after switching machines or Python versions.
+
+### `torch.compile` errors on CPU-only or macOS
+- TorchInductor has limited support outside Linux/CUDA; for quick validation set `reference_backend="eager"` and `torch._inductor.config.triton.cudagraph_trees = False` when debugging logic only.
+- Export `PYTORCH_ENABLE_MPS_FALLBACK=1` on Apple Silicon so eager execution continues when kernels miss MPS coverage.
+- To capture graphs without compiling, run `TORCHINDUCTOR_DISABLE_RECOMPILATION=1 python demo.py` or use the mock backend exclusively.
+- Many kernels need `torch.set_float32_matmul_precision("medium")` to avoid precision asserts on CPU; set this early in your script.
+
+### KernelDiff failing for nested outputs
+- HuggingFace models emit `ModelOutput` objects and tuples; pass `comparison_config=ComparisonConfig(flatten_lists=True)` or convert outputs to dicts before comparison.
+- Ensure every branch returns Tensors (or collections thereof). Non-tensor metadata (strings, ints) should be filtered out or wrapped in tensors.
+- Shape mismatches often stem from dynamic padding; clone inputs for each backend (`_clone_inputs` already does this) and freeze randomness with `torch.manual_seed`.
+- If only a subset should be compared, supply a preprocessed dict to `KernelDiffHarness` so `_flatten_outputs` sees identical keys.
 
 ## Project Structure
 
