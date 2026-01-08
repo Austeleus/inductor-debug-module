@@ -99,40 +99,99 @@ Command-line interface for managing the debug workflow.
 
 ```bash
 # List captured artifacts
-python -m debug_module list
+inductor-debug list
 
 # Analyze artifacts
-python -m debug_module analyze --type guards      # Dynamo guards analysis
-python -m debug_module analyze --type constraints # Constraint violations
-python -m debug_module analyze --type summary     # Overall summary
+inductor-debug analyze --type guards      # Dynamo guard analysis
+inductor-debug analyze --type constraints # Constraint violations
+inductor-debug analyze --type summary     # Overall summary
 
 # Generate reports
-python -m debug_module report --format html       # Visual HTML report
-python -m debug_module report --format json       # Machine-readable JSON
+inductor-debug report --format html       # Visual HTML report
+inductor-debug report --format json       # Machine-readable JSON
 
 # Clean artifacts
-python -m debug_module clean
+inductor-debug clean
+
+# The module entry point still works if you prefer `python -m ...`
+python -m debug_module list
 ```
 
 ## Installation
 
+### From source (recommended)
+
 ```bash
-# Clone the repository
 git clone https://github.com/Austeleus/inductor-debug-module.git
 cd inductor-debug-module
 
-# Create virtual environment
+# Create & activate a virtual environment (any manager works)
 python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
 
-# Install dependencies
-pip install torch torchvision transformers matplotlib
+# Install the library
+pip install .
+```
 
-# Optional: For GPU support
+### Editable/dev install
+
+```bash
+# Include tests, linters, and CLI entry points
+pip install -e .[dev]
+
+# Optional extras
+pip install -e .[benchmarks]    # Hugging Face + matplotlib
+pip install -e .[visualization] # Only matplotlib for KernelDiff plots
+```
+
+PyTorch has hardware specific wheels. When targeting CUDA builds refer to
+the [official installation selector](https://pytorch.org/get-started/locally/)
+and install the wheel *before* installing this package, e.g.:
+
+```bash
 pip install torch --index-url https://download.pytorch.org/whl/cu121
+pip install -e .[dev]
 ```
 
 ## Quick Start
+
+### Quick Package Test
+
+```bash
+# Base install
+pip install .
+
+# Editable install with dev tooling (pytest, linters)
+pip install -e '.[dev]'
+
+# Optional extras
+pip install -e '.[benchmarks]'    # Hugging Face + matplotlib
+pip install -e '.[visualization]' # only matplotlib for KernelDiff plots
+
+# Python usage
+python - <<'PY'
+from debug_module import mock_backend, GuardInspector, KernelDiffHarness
+from debug_module.aot_backend.mock import aot_mock_backend
+print("mock backend ready:", mock_backend)
+PY
+
+# CLI entry point (inductor-debug)
+inductor-debug list
+inductor-debug analyze --type guards
+inductor-debug report --format html
+inductor-debug clean
+
+# Legacy entry point still works
+python -m debug_module list
+
+# Benchmarks & demos are just modules
+python -m benchmarks.runner --all
+python demo.py
+
+# Tests
+pytest                       # GPUs/Linux recommended for full suite
+pytest -k "not aotbackend and not kerneldiff_bert and not comprehensive"  # CPU-friendly subset
+```
 
 ### Interactive Demo
 
@@ -222,10 +281,93 @@ python -m benchmarks.runner --list
 
 ```bash
 # Generate HTML report (after running benchmarks)
-python -m debug_module report --format html
+inductor-debug report --format html
 
 # Open the report
 # → debug_artifacts/reports/debug_report_<timestamp>.html
+```
+
+## Debugger Usage Examples
+
+### Example 1: Catch dtype/layout violations before lowering
+Enforce strict constraints by running the mock backend via `torch.compile`. Any unsupported dtype, alignment, or stride will raise immediately and the CLI surfaces the repro artifacts.
+
+```bash
+export MOCK_STRICT=1
+export MOCK_ALIGNMENT=16
+
+python - <<'PY'
+import torch
+from debug_module import mock_backend
+
+class TinyAttention(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.proj = torch.nn.Linear(64, 64)
+
+    def forward(self, x):
+        return self.proj(x.double())  # Force float64 to trip dtype constraints
+
+model = TinyAttention()
+compiled = torch.compile(model, backend=mock_backend)
+compiled(torch.randn(32, 64))
+PY
+
+# Inspect violations and generated repro scripts
+inductor-debug analyze --type constraints
+```
+
+### Example 2: Validate kernels numerically with KernelDiff
+Compare eager execution against the mock backend (or your custom backend) to maintain accuracy gates. The harness emits JSON plus error heatmaps for failing tensors.
+
+```bash
+python - <<'PY'
+import torch
+from debug_module.diff import KernelDiffHarness
+from debug_module import mock_backend
+
+class TinyMLP(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.net = torch.nn.Sequential(
+            torch.nn.Linear(128, 256),
+            torch.nn.ReLU(),
+            torch.nn.Linear(256, 128),
+        )
+
+    def forward(self, x):
+        return self.net(x)
+
+model = TinyMLP()
+example_inputs = (torch.randn(16, 128),)
+
+harness = KernelDiffHarness(
+    model,
+    example_inputs,
+    model_name="tiny_mlp",
+    reference_backend="eager",
+    test_backend=mock_backend,
+)
+
+report = harness.compare(generate_visualizations=True)
+print(report.summary())
+PY
+
+# JSON + plots land in debug_artifacts/reports/
+```
+
+### Example 3: Investigate guard-induced graph breaks and publish reports
+Pair the benchmark runner with the CLI analyzers to understand guard explosions, then ship an HTML dashboard summarizing constraints, benchmarks, and KernelDiff outcomes.
+
+```bash
+# Capture FX graphs, guards, timings, and artifacts
+python -m benchmarks.runner --model resnet
+
+# Explain why TorchDynamo broke graphs
+inductor-debug analyze --type guards
+
+# Bundle the findings into an HTML report
+inductor-debug report --format html
 ```
 
 ## Configuration
@@ -245,6 +387,26 @@ export MOCK_ALIGNMENT=8
 export MOCK_MAX_MEMORY=1073741824  # 1 GB
 python your_script.py
 ```
+
+## Troubleshooting
+
+### Installation fails
+- Ensure PyTorch (matching your CUDA/CPU stack) is installed *before* this package: `pip install torch --index-url https://download.pytorch.org/whl/cu121 && pip install -e .[dev]`.
+- Extras such as `.[benchmarks]` pull in large dependencies (HuggingFace, matplotlib); add `--extra-index-url` or a proxy if your environment requires it.
+- If `pip` cannot find `debug_module`, verify you are in the repo root (`pyproject.toml` present) and that your virtualenv is activated.
+- Wheels built on one platform are not portable; re-run `pip install -e .` after switching machines or Python versions.
+
+### `torch.compile` errors on CPU-only or macOS
+- TorchInductor has limited support outside Linux/CUDA; for quick validation set `reference_backend="eager"` and `torch._inductor.config.triton.cudagraph_trees = False` when debugging logic only.
+- Export `PYTORCH_ENABLE_MPS_FALLBACK=1` on Apple Silicon so eager execution continues when kernels miss MPS coverage.
+- To capture graphs without compiling, run `TORCHINDUCTOR_DISABLE_RECOMPILATION=1 python demo.py` or use the mock backend exclusively.
+- Many kernels need `torch.set_float32_matmul_precision("medium")` to avoid precision asserts on CPU; set this early in your script.
+
+### KernelDiff failing for nested outputs
+- HuggingFace models emit `ModelOutput` objects and tuples; pass `comparison_config=ComparisonConfig(flatten_lists=True)` or convert outputs to dicts before comparison.
+- Ensure every branch returns Tensors (or collections thereof). Non-tensor metadata (strings, ints) should be filtered out or wrapped in tensors.
+- Shape mismatches often stem from dynamic padding; clone inputs for each backend (`_clone_inputs` already does this) and freeze randomness with `torch.manual_seed`.
+- If only a subset should be compared, supply a preprocessed dict to `KernelDiffHarness` so `_flatten_outputs` sees identical keys.
 
 ## Project Structure
 

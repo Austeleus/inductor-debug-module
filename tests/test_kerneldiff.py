@@ -16,6 +16,7 @@ import torch
 import torch.nn as nn
 import os
 import sys
+import pytest
 
 # Ensure we're using the local debug_module
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -68,12 +69,8 @@ def test_metrics_identical_tensors():
     print_info(f"Mean absolute error: {result.mean_absolute_error}")
     print_info(f"Mismatched elements: {result.mismatched_elements}")
 
-    if result.passed and result.max_absolute_error == 0.0:
-        print_pass("Identical tensors correctly identified")
-        return True
-    else:
-        print_fail("Identical tensors should have zero error")
-        return False
+    assert result.passed and result.max_absolute_error == 0.0, "Identical tensors should have zero error"
+    print_pass("Identical tensors correctly identified")
 
 
 def test_metrics_different_tensors():
@@ -93,12 +90,8 @@ def test_metrics_different_tensors():
     print_info(f"Passed: {result.passed}")
 
     # 0.1 > 1e-3, so should fail
-    if not result.passed and abs(result.max_absolute_error - 0.1) < 1e-6:
-        print_pass("Different tensors correctly detected")
-        return True
-    else:
-        print_fail("Should detect difference of 0.1")
-        return False
+    assert not result.passed and abs(result.max_absolute_error - 0.1) < 1e-6, "Should detect difference of 0.1"
+    print_pass("Different tensors correctly detected")
 
 
 def test_metrics_tolerance():
@@ -122,12 +115,8 @@ def test_metrics_tolerance():
     print_info(f"Tight tolerance (1e-7): {'FAIL' if not tight_result.passed else 'PASS'}")
     print_info(f"Loose tolerance (1e-5): {'PASS' if loose_result.passed else 'FAIL'}")
 
-    if not tight_result.passed and loose_result.passed:
-        print_pass("Tolerance thresholds working correctly")
-        return True
-    else:
-        print_fail("Tolerance logic incorrect")
-        return False
+    assert (not tight_result.passed) and loose_result.passed, "Tolerance logic incorrect"
+    print_pass("Tolerance thresholds working correctly")
 
 
 def test_metrics_summary():
@@ -144,12 +133,8 @@ def test_metrics_summary():
     summary = result.summary()
     print(summary)
 
-    if "summary_test" in summary and "Max Abs Error" in summary:
-        print_pass("Summary generated correctly")
-        return True
-    else:
-        print_fail("Summary format incorrect")
-        return False
+    assert "summary_test" in summary and "Max Abs Error" in summary, "Summary format incorrect"
+    print_pass("Summary generated correctly")
 
 
 # ============================================================================
@@ -164,8 +149,7 @@ def test_visualization_heatmap():
         import matplotlib
         matplotlib.use('Agg')  # Non-interactive backend
     except ImportError:
-        print_info("matplotlib not installed, skipping visualization test")
-        return True
+        pytest.skip("matplotlib not installed, skipping visualization test")
 
     from debug_module.diff.metrics import compare_tensors
     from debug_module.diff.visualization import generate_error_heatmap, VisualizationConfig
@@ -183,17 +167,13 @@ def test_visualization_heatmap():
     try:
         filepath = generate_error_heatmap(result, config=config, save=True, show=False)
 
-        if filepath and os.path.exists(filepath):
-            print_info(f"Heatmap saved to: {filepath}")
-            print_pass("Heatmap generated successfully")
-            return True
-        else:
-            print_fail("Heatmap file not created")
-            return False
+        assert filepath and os.path.exists(filepath), "Heatmap file not created"
+        print_info(f"Heatmap saved to: {filepath}")
+        print_pass("Heatmap generated successfully")
 
     except Exception as e:
         print_fail(f"Heatmap generation failed: {e}")
-        return False
+        pytest.fail(str(e))
 
 
 def test_visualization_1d():
@@ -204,8 +184,7 @@ def test_visualization_1d():
         import matplotlib
         matplotlib.use('Agg')
     except ImportError:
-        print_info("matplotlib not installed, skipping")
-        return True
+        pytest.skip("matplotlib not installed, skipping 1D visualization test")
 
     from debug_module.diff.metrics import compare_tensors
     from debug_module.diff.visualization import generate_error_heatmap, VisualizationConfig
@@ -221,12 +200,12 @@ def test_visualization_1d():
         filepath = generate_error_heatmap(result, config=config, save=True, show=False)
         if filepath:
             print_info(f"1D plot saved to: {filepath}")
-            print_pass("1D visualization generated")
-            return True
-        return True  # No file for 1D is also acceptable
+        else:
+            print_info("1D visualization skipped file creation (acceptable)")
+        print_pass("1D visualization generated")
     except Exception as e:
         print_fail(f"1D visualization failed: {e}")
-        return False
+        pytest.fail(str(e))
 
 
 # ============================================================================
@@ -255,19 +234,14 @@ def test_harness_simple_function():
     try:
         report = harness.compare(generate_visualizations=False, save_report=True)
         print(report.summary())
-
-        if report.overall_passed:
-            print_pass("Simple function comparison passed")
-            return True
-        else:
-            print_fail("Simple function should produce identical results")
-            return False
+        assert report.overall_passed, "Simple function should produce identical results"
+        print_pass("Simple function comparison passed")
 
     except Exception as e:
         print_fail(f"Harness failed: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        pytest.fail(str(e))
 
 
 def test_harness_simple_module():
@@ -300,23 +274,17 @@ def test_harness_simple_module():
 
         if report.overall_passed:
             print_pass("Simple module comparison passed")
-            return True
         else:
-            # With mock backend, small numerical differences are expected
-            # Check if errors are within reasonable bounds
             max_err = max(r.max_absolute_error for r in report.tensor_results)
             print_info(f"Max error: {max_err:.2e}")
-            if max_err < 1e-3:
-                print_pass("Errors within acceptable range")
-                return True
-            print_fail("Errors too large")
-            return False
+            assert max_err < 1e-3, "Errors too large"
+            print_pass("Errors within acceptable range")
 
     except Exception as e:
         print_fail(f"Harness failed: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        pytest.fail(str(e))
 
 
 # ============================================================================
@@ -358,18 +326,14 @@ def test_harness_dict_output():
         for r in report.tensor_results:
             print_info(f"  {r.name}: {r.shape}")
 
-        if report.total_tensors == 2:
-            print_pass("Dict outputs correctly flattened")
-            return True
-        else:
-            print_fail(f"Expected 2 tensors, got {report.total_tensors}")
-            return False
+        assert report.total_tensors == 2, f"Expected 2 tensors, got {report.total_tensors}"
+        print_pass("Dict outputs correctly flattened")
 
     except Exception as e:
         print_fail(f"Harness failed: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        pytest.fail(str(e))
 
 
 def test_harness_tuple_output():
@@ -404,18 +368,14 @@ def test_harness_tuple_output():
         for r in report.tensor_results:
             print_info(f"  {r.name}: {r.shape}")
 
-        if report.total_tensors == 3:
-            print_pass("Tuple outputs correctly flattened")
-            return True
-        else:
-            print_fail(f"Expected 3 tensors, got {report.total_tensors}")
-            return False
+        assert report.total_tensors == 3, f"Expected 3 tensors, got {report.total_tensors}"
+        print_pass("Tuple outputs correctly flattened")
 
     except Exception as e:
         print_fail(f"Harness failed: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        pytest.fail(str(e))
 
 
 def test_harness_nested_output():
@@ -457,19 +417,14 @@ def test_harness_nested_output():
         for r in report.tensor_results:
             print_info(f"  {r.name}: {r.shape}")
 
-        # Should find: main, extras[0], extras[1], nested.a, nested.b = 5 tensors
-        if report.total_tensors == 5:
-            print_pass("Nested outputs correctly flattened")
-            return True
-        else:
-            print_fail(f"Expected 5 tensors, got {report.total_tensors}")
-            return False
+        assert report.total_tensors == 5, f"Expected 5 tensors, got {report.total_tensors}"
+        print_pass("Nested outputs correctly flattened")
 
     except Exception as e:
         print_fail(f"Harness failed: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        pytest.fail(str(e))
 
 
 # ============================================================================
@@ -509,18 +464,14 @@ def test_harness_dict_input():
         report = harness.compare(generate_visualizations=False, save_report=False)
         print(report.summary())
 
-        if report.overall_passed or report.total_tensors > 0:
-            print_pass("Dict inputs handled correctly")
-            return True
-        else:
-            print_fail("Dict input handling failed")
-            return False
+        assert report.overall_passed or report.total_tensors > 0, "Dict input handling failed"
+        print_pass("Dict inputs handled correctly")
 
     except Exception as e:
         print_fail(f"Harness failed: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        pytest.fail(str(e))
 
 
 # ============================================================================
@@ -549,18 +500,14 @@ def test_quick_check():
         passed = harness.quick_check(atol=1e-5, rtol=1e-4)
         print_info(f"Quick check result: {passed}")
 
-        if passed:
-            print_pass("Quick check working correctly")
-            return True
-        else:
-            print_fail("Quick check should pass for identical computation")
-            return False
+        assert passed, "Quick check should pass for identical computation"
+        print_pass("Quick check working correctly")
 
     except Exception as e:
         print_fail(f"Quick check failed: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        pytest.fail(str(e))
 
 
 # ============================================================================
@@ -593,25 +540,19 @@ def test_report_json():
             report_dir="debug_artifacts/test_reports"
         )
 
-        # Check if report can be serialized
         report_dict = report.to_dict()
         json_str = json.dumps(report_dict, indent=2)
         print_info(f"JSON report generated ({len(json_str)} bytes)")
 
-        # Verify key fields exist
         required_keys = ["model_name", "overall_passed", "tensor_results"]
-        if all(k in report_dict for k in required_keys):
-            print_pass("JSON report correctly structured")
-            return True
-        else:
-            print_fail("JSON report missing required keys")
-            return False
+        assert all(k in report_dict for k in required_keys), "JSON report missing required keys"
+        print_pass("JSON report correctly structured")
 
     except Exception as e:
         print_fail(f"JSON serialization failed: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        pytest.fail(str(e))
 
 
 # ============================================================================
